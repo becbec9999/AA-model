@@ -23,7 +23,7 @@ class DataLoader:
         
         # 数据路由表：统一定义各类数据的存放路径 (方便未来按需扩展)
         self.source_map = {
-            "量价": r"原始数据\指数量价数据-日度更新",
+            "量价": r"E:\数据库\同花顺ETF跟踪指数量价数据\1d",
             "宏观": r"原始数据\宏观经济数据",
             "估值": r"原始数据\指数估值数据"
         }
@@ -37,25 +37,27 @@ class DataLoader:
         """
         sub_dir = self.source_map.get(category)
         if not sub_dir:
-            raise ValueError(f"❌ 引擎错误：未知的数据类别 '{category}'，请在 DataLoader 中配置。")
+            raise ValueError(f"引擎错误：未知的数据类别 '{category}'，请在 DataLoader 中配置。")
             
         file_path = os.path.join(self.root_dir, sub_dir, f"{ticker}.csv")
         
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"❌ 引擎错误：找不到数据文件 {file_path}")
+            raise FileNotFoundError(f"引擎错误：找不到数据文件 {file_path}")
 
         # 1. 鲁棒性读取（兼容逗号、制表符、BOM隐藏字符等各类脏格式）
         try:
             df = pd.read_csv(file_path, sep=None, engine='python', encoding='utf-8-sig')
         except Exception:
             df = pd.read_csv(file_path, delim_whitespace=True, encoding='utf-8-sig')
-            
+
         # 2. 字段清洗：列名统一转小写并去除空格
         df.columns = df.columns.str.strip().str.lower()
-        
+
         # 3. 时间序列标准化：强制转换为日期索引并按升序排列
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
+        # 兼容 date 或 time 作为日期列名
+        date_col = 'date' if 'date' in df.columns else 'time'
+        df[date_col] = pd.to_datetime(df[date_col])
+        df.set_index(date_col, inplace=True)
         df.sort_index(ascending=True, inplace=True)
         
         return df
@@ -86,14 +88,14 @@ class VolumePriceIndicators:
         
         save_path = os.path.join(self.output_dir, file_name)
         result_df.to_csv(save_path)
-        print(f"  └── ✅ 成功生成: {file_name}")
+        print(f"  成功生成: {file_name}")
 
     # ---------------- 基础/跨品种指标区 ----------------
     
     def calc_and_save_amt(self, ticker: str):
         """计算单品种成交额"""
         df = self.loader.fetch(ticker, category="量价")
-        ind_df = df[['amt']].rename(columns={'amt': f'{ticker}_成交额'})
+        ind_df = df[['amount']].rename(columns={'amount': f'{ticker}_成交额'})
         self._save_result(ind_df, f"{ticker}_amt.csv")
 
     def calc_relative_strength(self, ticker_a: str, ticker_b: str):
@@ -142,12 +144,12 @@ class VolumePriceIndicators:
 # ==================================================
 if __name__ == "__main__":
     # --- 1. 系统路径配置 ---
-    ROOT_PATH = r"E:\code_source\Asset_Allocation"
+    ROOT_PATH = r"E:\code_source\AA-model"
     OUTPUT_PATH = os.path.join(ROOT_PATH, "指标结果库")
     TARGET_ASSETS = ["000300.SH", "000905.SH"]
     
     print("="*50)
-    print("🚀 启动投研指标批量生产任务")
+    print("启动投研指标批量生产任务")
     print("="*50)
 
     # --- 2. 挂载引擎与模块 ---
@@ -156,7 +158,7 @@ if __name__ == "__main__":
     
     # --- 3. 执行任务队列 ---
     for ticker in TARGET_ASSETS:
-        print(f"\n⏳ 正在处理资产标的: [ {ticker} ]")
+        print(f"\n正在处理资产标的: [ {ticker} ]")
         
         # 执行指标计算 (参数化控制生成周期)
         vp_module.calc_and_save_amt(ticker)
@@ -164,8 +166,8 @@ if __name__ == "__main__":
         vp_module.calc_and_save_mom(ticker, windows=[20, 60, 120])
         vp_module.calc_and_save_ma(ticker, windows=[20, 60, 120])
         
-    print("\n⏳ 正在处理跨品种指标...")
+    print("\n正在处理跨品种指标...")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="000905.SH")
         
-    print("\n🎉 任务结束：所有核心技术指标已成功生成并分类入库！")
+    print("\n任务结束：所有核心技术指标已成功生成并分类入库！")
     print("="*50)

@@ -30,15 +30,12 @@ class DataLoader:
         }
 
 
-        """
-         # WIN数据路由表：统一定义各类数据的存放路径 (方便未来按需扩展)
-        
+        # WIN数据路由表：统一定义各类数据的存放路径 (方便未来按需扩展)
         self.source_map = {
-            "量价": r"E:\数据库\同花顺ETF跟踪指数量价数据\1d",
+            "量价": r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新",
             "宏观": r"原始数据\宏观经济数据",
             "估值": r"原始数据\指数估值数据"
         }
-        """
 
 
     def fetch(self, ticker: str, category: str = "量价") -> pd.DataFrame:
@@ -97,21 +94,23 @@ class VolumePriceIndicators:
         研究员在编写具体指标时，只需调用此方法即可，无需关心文件 IO 逻辑。
         """
         # 自动去除因计算移动平均/收益率产生的初始空值 (NaN)
-        result_df.dropna(inplace=True) 
-        
-        save_path = os.path.join(self.output_dir, file_name)
-        result_df.to_csv(save_path)
-        print(f"  成功生成: {file_name}")
+        result_df.dropna(inplace=True)
+
+        # 输出为pkl格式（更轻量，Python原生支持）
+        pkl_name = file_name.replace('.csv', '.pkl')
+        save_path = os.path.join(self.output_dir, pkl_name)
+        result_df.to_pickle(save_path)
+        print(f"  成功生成: {pkl_name}")
 
     # ---------------- 基础/跨品种指标区 ----------------
     
     def calc_and_save_amt(self, ticker: str):
         """计算单品种成交额"""
         df = self.loader.fetch(ticker, category="量价")
-        ind_df = df[['amount']].rename(columns={'amount': f'{ticker}_成交额'})
+        ind_df = df[['amt']].rename(columns={'amt': f'{ticker}_成交额'})
         self._save_result(ind_df, f"{ticker}_amt.csv")
     
-    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "881001.WI"):
+    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "930709.CSI"):
         """
         计算个股/指数成交额占全市场的百分比
         :param ticker: 目标资产代码
@@ -245,12 +244,11 @@ class VolumePriceIndicators:
 # ==================================================
 if __name__ == "__main__":
     # --- 1. 系统路径配置 ---
-    #ROOT_PATH = r"E:\code_source\Asset_Allocation"
-    ROOT_PATH = r"/Users/ningxinwang/Desktop"
-    OUTPUT_PATH = os.path.join(ROOT_PATH, "指标结果库")
+    ROOT_PATH = r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新"
+    OUTPUT_PATH = r"e:\code_source\AA-model\指标结果库"
     
     """！！！在这里加标的！！！"""
-    TARGET_ASSETS = ["000300.SH", "000905.SH","000852.SH", "932000.CSI", "8841431.WI","881001.WI"]  # 可根据需要增减标的列表
+    TARGET_ASSETS = ["000300.SH", "000905.SH", "000852.SH", "932000.CSI", "8841431.WI", "881001.WI"]
     
     print("="*50)
     print("启动投研指标批量生产任务")
@@ -282,9 +280,8 @@ if __name__ == "__main__":
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="8841431.WI")
     vp_module.calc_relative_strength(ticker_a="000905.SH", ticker_b="000852.SH")
     vp_module.calc_relative_strength(ticker_a="000905.SH", ticker_b="932000.CSI")
-    vp_module.calc_relative_strength(ticker_a="000905.SH", ticker_b="000852.SH")
     vp_module.calc_relative_strength(ticker_a="000905.SH", ticker_b="8841431.WI")
-    vp_module.calc_relative_strength(ticker_a="000852.SH", ticker_b="8841431.WI")   
+    vp_module.calc_relative_strength(ticker_a="000852.SH", ticker_b="8841431.WI")
 
 
     vp_module.calc_relative_turnover(ticker_a="000300.SH", ticker_b="000905.SH")
@@ -293,10 +290,9 @@ if __name__ == "__main__":
     vp_module.calc_relative_turnover(ticker_a="000300.SH", ticker_b="8841431.WI")
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="000852.SH")
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="932000.CSI")
-    vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="000852.SH")
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="8841431.WI")
     vp_module.calc_relative_turnover(ticker_a="000852.SH", ticker_b="8841431.WI")  
       
 
-    print("\n🎉 任务结束：所有核心技术指标已成功生成并分类入库！")
+    print("\n[OK] 任务结束：所有核心技术指标已成功生成并分类入库！")
     print("="*50)

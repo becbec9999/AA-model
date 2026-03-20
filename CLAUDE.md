@@ -9,19 +9,49 @@
 ## 1. 项目整体架构和目录结构
 
 ```
-e:/code_source/AA-model/
+e:/AA-model/
 ├── AA_Indicators.py              # 核心指标计算引擎（数据引擎 + 量价类指标集）
-├── 大类资产配置指标展示.py         # 可视化展示脚本（生成交互式 HTML 报告）
-├── 每日量价跟踪报告.html          # Plotly 生成的交互式图表报告（V4.0专业金融终端风格）
+├── server.py                     # FastAPI 服务入口（V5.0）
+├── README.md                     # 操作文档
 ├── CLAUDE.md                     # 项目文档
 ├── .gitignore                    # Git忽略文件配置
-└── 指标结果库/                    # 输出的指标文件存储目录（PKL格式）
-    ├── {ticker}_{indicator}.pkl      # 按标的和指标类型命名的 PKL 文件
-    └── ...
+│
+├── api/                          # API 层
+│   ├── __init__.py
+│   ├── models.py                 # Pydantic 数据模型
+│   ├── routes.py                 # API 路由定义
+│   └── service.py                # 数据服务（读取指标库）
+│
+├── config/                       # 配置模块
+│   ├── __init__.py
+│   ├── tickers.py               # 标的配置（代码、名称、颜色）
+│   ├── indicators.py            # 指标模式定义
+│   └── paths.py                 # 路径配置
+│
+├── data/                        # 数据模块
+│   ├── __init__.py
+│   ├── loader.py                # 数据加载器
+│   └── discover.py              # 指标自动发现
+│
+├── charts/                      # 图表工厂
+│   └── factory.py
+│
+├── static/                      # 前端静态文件
+│   ├── css/style.css
+│   └── js/app.js
+│
+├── templates/                   # HTML 模板
+│   └── index.html
+│
+├── 指标结果库/                   # 输出的指标文件存储目录（PKL格式）
+│   ├── {ticker}_{indicator}.pkl
+│   └── ...
+│
+└── 原始数据/                     # 原始数据备份
 ```
 
 ### 数据源目录（需在 DataLoader 中配置）
-- **WIN**: `E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新`
+- **WIN**: `E:\择时模型数据\指数量价数据-非日度更新`
 
 ---
 
@@ -38,7 +68,7 @@ e:/code_source/AA-model/
 **数据路由表（source_map）**：
 | category | WIN 路径 |
 |----------|----------|
-| 量价 | `E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新` |
+| 量价 | `E:\择时模型数据\指数量价数据-非日度更新` |
 | 宏观 | `原始数据\宏观经济数据` |
 | 估值 | `原始数据\指数估值数据` |
 
@@ -65,24 +95,19 @@ e:/code_source/AA-model/
 | `calc_and_save_rsi_percentile` | RSI 及分位值 | `{ticker}_rsi_analysis.pkl` |
 | `calc_and_save_volatility` | 年化波动率 | `{ticker}_vol_{n}d.pkl` |
 
-### 2.3 大类资产配置指标展示（V4.0）
-位置：`大类资产配置指标展示.py`
+### 2.3 FastAPI 服务（V5.0）
+位置：`server.py` + `api/` 目录
 
-**职责**：使用 Plotly 生成交互式 HTML 图表
+**职责**：提供 REST API，按需加载图表数据
 
-**UI设计**：参考 TradingView/Bloomberg 专业金融终端风格
-- 深蓝黑背景（#131722）
-- 高对比度彩色线条
-- 固定顶部工具栏（含时间范围选择器）
-- 左侧边栏含标的复选框和指标导航
-- 图表容器固定 400px 高度
-- 右侧 Y 轴标签
-
-**主要功能**：
-- 指标按标的拆分显示（每个标的独立图表）
-- 相对强弱指标每个对比对独立图表
-- 时间范围快速切换（1M / 3M / 6M / YTD / 1Y / ALL）
-- Plotly 原生交互（缩放、拖拽、十字线）
+**API 端点**：
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 返回主页面 |
+| `/api/indicators` | GET | 获取所有指标列表（元数据） |
+| `/api/charts/{chart_id}` | GET | 获取指定图表数据（JSON） |
+| `/api/tickers` | GET | 获取所有标的列表 |
+| `/health` | GET | 健康检查 |
 
 ---
 
@@ -105,8 +130,8 @@ e:/code_source/AA-model/
 | 000905.SH | 中证500 |
 | 000852.SH | 中证1000 |
 | 932000.CSI | 科创50 |
-| 8841431.WI | 万得全A |
-| 881001.WI | 申万A股 |
+| 8841431.WI | 万得微盘股指数 |
+| 881001.WI | 万得全A |
 
 ---
 
@@ -115,30 +140,36 @@ e:/code_source/AA-model/
 ```
 pandas        # 数据处理
 numpy         # 数值计算
-plotly        # 交互式图表（仅展示模块）
+plotly        # 交互式图表
+fastapi       # Web 框架
+uvicorn       # ASGI 服务器
 ```
 
 **安装方式**：
 ```bash
-pip install pandas numpy plotly
+pip install pandas numpy plotly fastapi uvicorn
 ```
 
 ---
 
 ## 5. 常用运行命令
 
-### 5.1 运行指标计算
+### 5.1 启动可视化服务（推荐）
+```bash
+python server.py
+# 浏览器访问 http://localhost:8000
+```
+
+### 5.2 运行指标计算
 ```bash
 python AA_Indicators.py
 ```
 
-### 5.2 生成可视化报告
+### 5.3 旧版 HTML 单文件（已废弃）
 ```bash
 python 大类资产配置指标展示.py
+# 浏览器打开 每日量价跟踪报告.html
 ```
-
-### 5.3 查看报告
-在浏览器中打开 `每日量价跟踪报告.html`
 
 ---
 
@@ -161,6 +192,7 @@ python 大类资产配置指标展示.py
 ### 6.4 数据与计算解耦设计
 - DataLoader 负责数据读取和清洗
 - VolumePriceIndicators 负责指标计算和落盘
+- FastAPI 服务负责按需加载和展示
 - 研究员只需调用 `calc_and_save_*` 方法即可，无需关心 IO
 
 ---
@@ -179,6 +211,19 @@ python 大类资产配置指标展示.py
 ---
 
 ## 8. 版本历史
+
+### V5.1 (2026-03-21)
+- **UI优化**：图表占满右侧空间，自适应容器高度
+- **Y轴自适应**：移除固定高度，Plotly autosize=True 自动缩放
+- **折叠导航**：左侧分类支持折叠/展开（两级结构）
+- **分类重构**：按投资目的分类（趋势跟踪、动量反转、波动风险、市场情绪、风格切换）
+- **时间范围修复**：1M和ALL按钮逻辑修复，ALL显示数据全历史
+
+### V5.0 (2026-03-20)
+- **架构升级**：从 HTML 单文件改为 FastAPI 本地服务
+- **按需加载**：图表数据通过 API 独立加载，解决大数据量导致浏览器卡顿问题
+- **模块化重构**：前后端分离，代码更易维护
+- **保留旧版**：保留 `大类资产配置指标展示.py` 作为备选
 
 ### V4.0 (2026-03-20)
 - 完全重写可视化界面，采用专业金融终端风格

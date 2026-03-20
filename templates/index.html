@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大类资产配置指标监控面板</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <!-- 工具栏 -->
+    <header class="toolbar">
+        <div class="toolbar-left">
+            <span class="logo">📊</span>
+            <span class="toolbar-title">大类资产配置指标监控</span>
+        </div>
+        <div class="toolbar-center">
+            <button class="range-btn" data-range="1M">1M</button>
+            <button class="range-btn" data-range="3M">3M</button>
+            <button class="range-btn active" data-range="6M">6M</button>
+            <button class="range-btn" data-range="YTD">YTD</button>
+            <button class="range-btn" data-range="1Y">1Y</button>
+            <button class="range-btn" data-range="ALL">All</button>
+            <span class="date-separator">|</span>
+            <input type="date" id="customStartDate" class="date-input">
+            <span class="date-separator">至</span>
+            <input type="date" id="customEndDate" class="date-input">
+            <button id="applyCustomRange" class="range-btn">应用</button>
+        </div>
+        <div class="toolbar-right">
+            <span class="update-time" id="updateTime">加载中...</span>
+            <button class="refresh-btn" onclick="location.reload()">&#8635;</button>
+        </div>
+    </header>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="section-title">指标</div>
+            </div>
+        </aside>
+
+        <!-- 主内容 -->
+        <main class="content">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h2 class="chart-title" id="chartTitle">选择指标查看</h2>
+                    <div class="chart-legend" id="chartLegend"></div>
+                </div>
+                <div class="chart-container" id="mainChart">
+                    <div class="welcome">
+                        <div class="welcome-icon">&#128200;</div>
+                        <h2>大类资产配置指标监控</h2>
+                        <p>从左侧选择指标进行查看</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+    <script>
+        document.getElementById('updateTime').textContent = '更新: ' + new Date().toLocaleString('zh-CN');
+    </script>
+</body>
+</html>

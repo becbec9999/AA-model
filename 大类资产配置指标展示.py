@@ -1078,12 +1078,12 @@ def generate_html(indicators: dict, charts: dict) -> str:
                 chartConfig.data.forEach((trace, i) => {{
                     if (trace.name) {{
                         const color = colors[i % colors.length];
-                        legendEl.innerHTML += \`
-                            <span class="legend-item">
-                                <span class="legend-line" style="background: \${{{color}}}"></span>
-                                \${{trace.name}}
-                            </span>
-                        \`;
+                        legendEl.innerHTML += (
+                            '<span class="legend-item">' +
+                            '<span class="legend-line" style="background: ' + color + '"></span>' +
+                            trace.name +
+                            '</span>'
+                        );
                     }}
                 }});
             }}

@@ -13,6 +13,8 @@ e:/code_source/AA-model/
 ├── AA_Indicators.py              # 核心指标计算引擎（数据引擎 + 量价类指标集）
 ├── 大类资产配置指标展示.py         # 可视化展示脚本（生成交互式 HTML 报告）
 ├── 每日量价跟踪报告.html          # Plotly 生成的交互式图表报告（V4.0专业金融终端风格）
+├── CLAUDE.md                     # 项目文档
+├── .gitignore                    # Git忽略文件配置
 └── 指标结果库/                    # 输出的指标文件存储目录（PKL格式）
     ├── {ticker}_{indicator}.pkl      # 按标的和指标类型命名的 PKL 文件
     └── ...

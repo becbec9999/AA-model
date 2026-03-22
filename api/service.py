@@ -2,6 +2,7 @@
 import json
 import os
 from typing import Dict, List, Optional
+from functools import lru_cache
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,6 +21,14 @@ class ChartService:
 
     # 默认颜色
     DEFAULT_COLORS = ['#00b8a9', '#f75b5b', '#f7cc35', '#4caf50', '#9c27b0', '#2196f3']
+
+    # 图表数据缓存（避免重复计算）
+    _chart_cache: Dict[str, Dict] = {}
+
+    @classmethod
+    def clear_cache(cls):
+        """清除图表缓存"""
+        cls._chart_cache.clear()
 
     @classmethod
     def _get_ticker_display_name(cls, ticker: str) -> str:
@@ -109,6 +118,10 @@ class ChartService:
         Returns:
             包含 data 和 layout 的字典
         """
+        # 检查缓存
+        if chart_id in cls._chart_cache:
+            return cls._chart_cache[chart_id]
+
         indicators = discover_indicators(OUTPUT_DIR)
 
         # 找到对应的指标
@@ -149,13 +162,18 @@ class ChartService:
         if fig is None:
             return None
 
-        # 转换为字典
-        return {
+        # 转换为字典（避免重复调用 to_json）
+        fig_json = json.loads(fig.to_json())
+        result = {
             'id': chart_id,
             'title': title,
-            'data': json.loads(fig.to_json())['data'],
-            'layout': json.loads(fig.to_json())['layout'],
+            'data': fig_json['data'],
+            'layout': fig_json['layout'],
         }
+
+        # 存入缓存
+        cls._chart_cache[chart_id] = result
+        return result
 
     @classmethod
     def _create_chart(cls, pattern: str, title: str, df: pd.DataFrame, color: str) -> Optional[go.Figure]:

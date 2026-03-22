@@ -14,6 +14,11 @@ from typing import List
 # 模块一：统一数据引擎 (DataLoader)
 # 负责底层数据的抓取、清洗与标准化
 # ==========================================
+
+# A股年平均交易日
+TRADING_DAYS_PER_YEAR = 242
+
+
 class DataLoader:
     def __init__(self, root_dir: str):
         """
@@ -21,21 +26,23 @@ class DataLoader:
         :param root_dir: 团队共享的数据根目录
         """
         self.root_dir = root_dir
-        
-        # MAC数据路由表：统一定义各类数据的存放路径 (方便未来按需扩展)
-        self.source_map = {
-            "量价": r"原始数据/指数量价数据-日度更新",
-            "宏观": r"原始数据/宏观经济数据",
-            "估值": r"原始数据/指数估值数据"
-        }
 
+        # 数据路由表：根据操作系统自动选择路径
+        import platform
+        system = platform.system()
 
-        # WIN数据路由表：统一定义各类数据的存放路径 (方便未来按需扩展)
-        self.source_map = {
-            "量价": r"E:\择时模型数据\指数量价数据-非日度更新",
-            "宏观": r"原始数据\宏观经济数据",
-            "估值": r"原始数据\指数估值数据"
-        }
+        if system == "Windows":
+            self.source_map = {
+                "量价": r"E:\择时模型数据\指数量价数据-非日度更新",
+                "宏观": r"原始数据\宏观经济数据",
+                "估值": r"原始数据\指数估值数据"
+            }
+        else:  # Mac / Linux
+            self.source_map = {
+                "量价": r"原始数据/指数量价数据-日度更新",
+                "宏观": r"原始数据/宏观经济数据",
+                "估值": r"原始数据/指数估值数据"
+            }
 
 
     def fetch(self, ticker: str, category: str = "量价") -> pd.DataFrame:
@@ -94,7 +101,7 @@ class VolumePriceIndicators:
         研究员在编写具体指标时，只需调用此方法即可，无需关心文件 IO 逻辑。
         """
         # 自动去除因计算移动平均/收益率产生的初始空值 (NaN)
-        result_df.dropna(inplace=True)
+        result_df = result_df.dropna()
 
         # 输出为pkl格式（更轻量，Python原生支持）
         pkl_name = file_name.replace('.csv', '.pkl')
@@ -125,9 +132,13 @@ class VolumePriceIndicators:
         """计算相对强弱比值 (揭示风格切换的经典择时因子)"""
         df_a = self.loader.fetch(ticker_a, category="量价")
         df_b = self.loader.fetch(ticker_b, category="量价")
-        
+
         # Pandas 会自动按日期对齐，避免停牌导致的数据错位
-        ratio = (df_a['close'] / df_b['close']).to_frame(name=f'{ticker_a}_对_{ticker_b}_相对强弱')
+        # 防止除零：当 df_b['close'] 为 0 时，比率设为 NaN
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = (df_a['close'] / df_b['close']).to_frame(name=f'{ticker_a}_对_{ticker_b}_相对强弱')
+            ratio = ratio.where(df_b['close'] != 0, np.nan)
+
         self._save_result(ratio, f"{ticker_a}_vs_{ticker_b}_rs.csv")
 
     def calc_relative_turnover(self, ticker_a: str, ticker_b: str):
@@ -205,7 +216,11 @@ class VolumePriceIndicators:
         # 计算 RSI
         avg_gain = gain.rolling(window=rsi_win).mean()
         avg_loss = loss.rolling(window=rsi_win).mean()
-        rsi = (avg_gain / (avg_gain + avg_loss)) * 100
+        # 防止除零：当 avg_gain + avg_loss 为 0 时（即价格无波动），RSI 保持为 NaN
+        # NaN 在金融分析中更合理，表示无法计算有意义的方向
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rsi = avg_gain / (avg_gain + avg_loss) * 100
+            rsi = pd.Series(rsi).where((avg_gain + avg_loss) != 0, np.nan)
         
         # 计算分位值 (Rolling Percentile)
         rsi_30p = rsi.rolling(window=p_win).quantile(0.3)
@@ -234,8 +249,8 @@ class VolumePriceIndicators:
         
         for n in windows:
             # 3. 计算滚动标准差并进行年化处理
-            # 242 为 A 股一年平均交易日，sqrt(242) 是将日频波动率转化为年频的标准系数
-            vol = (log_ret.rolling(window=n).std() * np.sqrt(242) * 100).to_frame(name=f'{ticker}_年化波动率_{n}日')
+            # TRADING_DAYS_PER_YEAR 为 A 股一年平均交易日（约242天）
+            vol = (log_ret.rolling(window=n).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100).to_frame(name=f'{ticker}_年化波动率_{n}日')
             
             # 4. 统一落盘
             self._save_result(vol, f"{ticker}_vol_{n}d.csv")

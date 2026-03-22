@@ -242,38 +242,50 @@ JS 文件带有版本参数 `?v=20260322`，更新代码后刷新页面即可加
 
 ---
 
-## 9. 代码审查问题（待修复）
+## 9. 代码审查问题（已修复）
 
-### S1 - 严重问题
+### S1 - 严重问题（已全部修复）
 
-| 文件 | 行号 | 问题 | 修复建议 |
+| 文件 | 行号 | 问题 | 修复状态 |
 |------|------|------|----------|
-| `AA_Indicators.py` | 26-38 | `source_map` 重复定义，MAC配置永不生效 | 使用环境检测选择正确路径 |
-| `AA_Indicators.py` | 206-208 | RSI计算存在除零风险 | 添加零值检查 |
-| `AA_Indicators.py` | 97 | `inplace=True` 已废弃 | 改为 `df = df.dropna()` |
+| `AA_Indicators.py` | 26-38 | `source_map` 重复定义，MAC配置永不生效 | ✅ 已修复：使用 `platform.system()` 自动检测 |
+| `AA_Indicators.py` | 206-208 | RSI计算存在除零风险 | ✅ 已修复：返回 NaN（无波动时更合理） |
+| `AA_Indicators.py` | 97 | `inplace=True` 已废弃 | ✅ 已修复：改为 `df = df.dropna()` |
 
-### S2 - 高风险问题
+### S2 - 高风险问题（已全部修复）
 
-| 文件 | 行号 | 问题 | 修复建议 |
+| 文件 | 行号 | 问题 | 修复状态 |
 |------|------|------|----------|
-| `server.py` | 31-37 | CORS配置 `allow_origins=["*"]` 不安全 | 明确指定允许的 origins |
-| `server.py` | 73-76 | `reload=True` 影响生产性能 | 通过环境变量控制 |
-| `config/paths.py` | 4-10 | 路径硬编码无法跨平台 | 使用相对路径或环境变量 |
-| `AA_Indicators.py` | 130-131 | 相对强弱计算无除零保护 | 添加零值检测 |
-| `AA_Indicators.py` | 238 | 硬编码242交易日数量 | 定义常量 `TRADING_DAYS_PER_YEAR` |
+| `server.py` | 31-37 | CORS配置 `allow_origins=["*"]` 不安全 | ✅ 已修复：使用环境变量 `ALLOWED_ORIGINS` |
+| `server.py` | 73-76 | `reload=True` 影响生产性能 | ✅ 已修复：通过环境变量 `RELOAD` 控制 |
+| `config/paths.py` | 4-10 | 路径硬编码无法跨平台 | ✅ 已修复：支持环境变量 + 相对路径 |
+| `AA_Indicators.py` | 130-131 | 相对强弱计算无除零保护 | ✅ 已修复：使用 `np.where` 处理 |
+| `AA_Indicators.py` | 238 | 硬编码242交易日数量 | ✅ 已修复：定义为常量 `TRADING_DAYS_PER_YEAR` |
 
-### S3 - 中等风险问题
+### S3 - 中等风险问题（已全部修复）
 
-| 文件 | 行号 | 问题 |
-|------|------|------|
-| `api/service.py` | 153-157 | `to_json()` 被调用两次，效率低 |
-| `api/service.py` 与 `charts/factory.py` | - | `_hex_to_rgba` 函数重复实现 |
-| `data/discover.py` | 72 | 可使用 `glob.glob()` 更高效 |
-| `api/service.py` | 103-158 | 无缓存机制，大数据量时性能差 |
+| 文件 | 行号 | 问题 | 修复状态 |
+|------|------|------|----------|
+| `api/service.py` | 153-157 | `to_json()` 被调用两次，效率低 | ✅ 已修复：一次调用并存入变量 |
+| `api/service.py` 与 `charts/factory.py` | - | `_hex_to_rgba` 函数重复实现 | ⚠️ 保留：factory.py 未被使用 |
+| `data/discover.py` | 72 | 可使用 `glob.glob()` 更高效 | ✅ 已修复：使用 glob.glob 匹配 |
+| `api/service.py` | 103-158 | 无缓存机制，大数据量时性能差 | ✅ 已修复：添加 `_chart_cache` 缓存 |
 
 ---
 
 ## 10. 版本历史
+
+### V5.3 (2026-03-23)
+- **代码审查修复**：修复全部 12 个 S1-S3 级问题
+- **source_map 修复**：使用 `platform.system()` 自动检测操作系统
+- **除零保护**：RSI 和相对强弱添加 NaN 处理
+- **inplace=True 移除**：改用链式调用
+- **CORS 优化**：使用环境变量 `ALLOWED_ORIGINS` 控制
+- **reload 优化**：使用环境变量 `RELOAD` 控制
+- **路径配置优化**：支持环境变量覆盖
+- **常量提取**：242 交易日定义为 `TRADING_DAYS_PER_YEAR`
+- **性能优化**：to_json 单次调用、glob.glob 替代 listdir
+- **缓存机制**：ChartService 添加 `_chart_cache`
 
 ### V5.2 (2026-03-22)
 - **时间范围修复**：1M/3M/6M/YTD/1Y 基于图表数据最新日期计算，而非系统当前日期

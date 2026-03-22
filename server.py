@@ -28,9 +28,11 @@ app = FastAPI(
 )
 
 # 添加 CORS 中间件
+# 生产环境建议设置具体的 origins，不使用 *
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,11 +64,15 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
 
+    # 生产环境设置 RELOAD=false 可禁用自动重载，提升性能
+    reload_enabled = os.environ.get("RELOAD", "true").lower() != "false"
+
     print("=" * 60)
     print("AA-Model Dashboard Server V5.0")
     print("=" * 60)
     print("\n启动服务...")
     print("访问地址: http://localhost:8000")
+    print(f"自动重载: {'启用' if reload_enabled else '禁用'}")
     print("\n按 Ctrl+C 停止服务")
     print("=" * 60)
 
@@ -74,6 +80,6 @@ if __name__ == "__main__":
         "server:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=reload_enabled,
         log_level="info"
     )

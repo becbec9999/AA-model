@@ -1,6 +1,7 @@
 """指标自动发现"""
 import os
 import re
+import glob
 from typing import Optional
 
 from config import INDICATOR_PATTERNS
@@ -69,7 +70,12 @@ def discover_indicators(output_dir: str) -> dict:
         return {}
 
     result = {}
-    indicator_files = [f for f in os.listdir(output_dir) if f.endswith(('.pkl', '.csv'))]
+    # 使用 glob.glob 更高效地匹配文件
+    indicator_files = [
+        os.path.basename(f) for f in glob.glob(os.path.join(output_dir, '*.pkl'))
+    ] + [
+        os.path.basename(f) for f in glob.glob(os.path.join(output_dir, '*.csv'))
+    ]
 
     print(f"[INFO] Found {len(indicator_files)} indicator files")
 

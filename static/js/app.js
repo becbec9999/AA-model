@@ -308,9 +308,9 @@ function applyCustomDateRangeHandler() {
     }
 }
 
-// 计算日期范围
-function getDateRange(range) {
-    const now = new Date();
+// 计算日期范围（基于图表数据的最新日期）
+function getDateRange(range, dataEndDate) {
+    const now = new Date(dataEndDate || new Date());
     let startDate = new Date(now);
 
     switch(range) {
@@ -319,6 +319,9 @@ function getDateRange(range) {
         case '6M': startDate.setMonth(startDate.getMonth() - 6); break;
         case 'YTD': startDate = new Date(now.getFullYear(), 0, 1); break;
         case '1Y': startDate.setFullYear(startDate.getFullYear() - 1); break;
+        case '2Y': startDate.setFullYear(startDate.getFullYear() - 2); break;
+        case '3Y': startDate.setFullYear(startDate.getFullYear() - 3); break;
+        case '5Y': startDate.setFullYear(startDate.getFullYear() - 5); break;
         case 'ALL': return null;
     }
     return startDate;
@@ -396,10 +399,10 @@ function applyTimeRange(rangeOrStart, endDate) {
     if (!currentChartId) return;
 
     const container = document.getElementById('mainChart');
+    if (!container || !container.data || !container.data[0]) return;
 
-    // 获取图表数据的x轴范围
-    const trace = container.data ? container.data[0] : null;
-    if (!trace || !trace.x || trace.x.length === 0) return;
+    const trace = container.data[0];
+    if (!trace.x || trace.x.length === 0) return;
 
     let startDate, endDateVal;
 
@@ -410,7 +413,10 @@ function applyTimeRange(rangeOrStart, endDate) {
     } else {
         // 预设区间
         const range = rangeOrStart || currentRange;
-        const now = new Date();
+        // 使用数据的最新日期作为"今天"
+        const dataEndDate = trace.x[trace.x.length - 1];
+
+        console.log('applyTimeRange:', range, 'currentRange:', currentRange, 'dataEndDate:', dataEndDate);
 
         if (range === 'ALL') {
             // ALL: 显示数据的全历史范围
@@ -421,8 +427,8 @@ function applyTimeRange(rangeOrStart, endDate) {
             return;
         }
 
-        startDate = getDateRange(range);
-        endDateVal = now;
+        startDate = getDateRange(range, dataEndDate);
+        endDateVal = new Date(dataEndDate);
     }
 
     if (!startDate) {
@@ -437,6 +443,9 @@ function applyTimeRange(rangeOrStart, endDate) {
     const startMs = startDate.getTime();
     const endMs = endDateVal.getTime();
 
+    console.log('startMs:', startMs, 'endMs:', endMs);
+    console.log('trace.x[0]:', trace.x[0], 'last:', trace.x[trace.x.length - 1]);
+
     // 找到在范围内的起始和结束索引
     let visibleStart = 0;
     let visibleEnd = trace.x.length - 1;
@@ -444,7 +453,7 @@ function applyTimeRange(rangeOrStart, endDate) {
     // 找到第一个 >= startMs 的索引
     for (let i = 0; i < trace.x.length; i++) {
         const dateMs = new Date(trace.x[i]).getTime();
-        if (dateMs >= startMs) {
+        if (!isNaN(dateMs) && dateMs >= startMs) {
             visibleStart = i;
             break;
         }
@@ -453,17 +462,24 @@ function applyTimeRange(rangeOrStart, endDate) {
     // 找到最后一个 <= endMs 的索引
     for (let i = trace.x.length - 1; i >= 0; i--) {
         const dateMs = new Date(trace.x[i]).getTime();
-        if (dateMs <= endMs) {
+        if (!isNaN(dateMs) && dateMs <= endMs) {
             visibleEnd = i;
             break;
         }
     }
 
+    console.log('visibleStart:', visibleStart, 'visibleEnd:', visibleEnd);
+
     // 确保有效范围
     if (visibleStart <= visibleEnd) {
+        // 使用 Plotly 兼容的日期格式
+        const rangeStr = [trace.x[visibleStart], trace.x[visibleEnd]];
+        console.log('Setting range:', rangeStr);
+
         Plotly.relayout(container, {
-            'xaxis.range': [trace.x[visibleStart], trace.x[visibleEnd]],
-            'xaxis.rangeslider.visible': true
+            'xaxis.range': rangeStr,
+            'xaxis.rangeslider.visible': true,
+            'yaxis.autorange': true,  // 保持 Y 轴自适应
         });
     }
 }

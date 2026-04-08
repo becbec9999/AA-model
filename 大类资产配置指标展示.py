@@ -19,8 +19,11 @@ from datetime import datetime
 # 配置区
 # ==========================================
 
-OUTPUT_DIR = r"e:\code_source\AA-model\指标结果库"
-DATA_DIR = r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新"
+#OUTPUT_DIR = r"e:\code_source\AA-model\指标结果库"
+#DATA_DIR = r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新"
+OUTPUT_DIR = r"/Users/ningxinwang/desktop/AA-model/指标结果库"
+DATA_DIR = r"/Users/ningxinwang/desktop/原始数据/指数量价数据-日度更新"
+
 OUTPUT_FILE = "每日量价跟踪报告.html"
 
 # 高对比度配色方案

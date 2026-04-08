@@ -30,7 +30,8 @@ class DataLoader:
         # 数据路由表：根据操作系统自动选择路径
         import platform
         system = platform.system()
-
+        
+        
         if system == "Windows":
             self.source_map = {
                 "量价": r"E:\择时模型数据\指数量价数据-非日度更新",
@@ -43,6 +44,7 @@ class DataLoader:
                 "宏观": r"原始数据/宏观经济数据",
                 "估值": r"原始数据/指数估值数据"
             }
+        
 
 
     def fetch(self, ticker: str, category: str = "量价") -> pd.DataFrame:
@@ -119,40 +121,50 @@ class VolumePriceIndicators:
     
     def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "930709.CSI"):
         """
-        计算个股/指数成交额占全市场的百分比
-        :param ticker: 目标资产代码
-        :param market_ticker: 万得全A指数的代码 (请确保文件名与此处一致)
+        计算成交额占全市场的对数占比 (Log Amount Ratio)
+        公式：log(ticker_amt / market_amt)
         """
         df = self.loader.fetch(ticker, category="量价")
         df_market = self.loader.fetch(market_ticker, category="量价")
-        ratio = (df['amt'] / df_market['amt'] * 100).to_frame(name=f'{ticker}_占市场比重')
+        
+        # 使用 log 避免成交额绝对值差距过大，反映相对活跃度的变动
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.log(df['amt'] / df_market['amt']).to_frame(name=f'{ticker}_成交额对数占比')
+            
         self._save_result(ratio, f"{ticker}_vs_market_amt_ratio.csv")
 
     def calc_relative_strength(self, ticker_a: str, ticker_b: str):
-        """计算相对强弱比值 (揭示风格切换的经典择时因子)"""
+        """
+        计算对数相对强弱 (Log Relative Strength)
+        公式：log(price_a / price_b)
+        """
         df_a = self.loader.fetch(ticker_a, category="量价")
         df_b = self.loader.fetch(ticker_b, category="量价")
 
-        # Pandas 会自动按日期对齐，避免停牌导致的数据错位
-        # 防止除零：当 df_b['close'] 为 0 时，比率设为 NaN
+        # 对数化处理：log(A/B) 等同于 log(A) - log(B)
+        # 这能将比率转化为围绕 0 轴波动的序列
         with np.errstate(divide='ignore', invalid='ignore'):
-            ratio = (df_a['close'] / df_b['close']).to_frame(name=f'{ticker_a}_对_{ticker_b}_相对强弱')
-            ratio = ratio.where(df_b['close'] != 0, np.nan)
+            ratio = np.log(df_a['close'] / df_b['close']).to_frame(name=f'{ticker_a}_对_{ticker_b}_对数相对强弱')
 
         self._save_result(ratio, f"{ticker_a}_vs_{ticker_b}_rs.csv")
 
     def calc_relative_turnover(self, ticker_a: str, ticker_b: str):
-        """计算相对换手率比值 (揭示市场资金偏好切换)"""
+        """
+        计算对数相对换手率 (Log Relative Turnover)
+        公式：log(turnover_a / turnover_b)
+        """
         df_a = self.loader.fetch(ticker_a, category="量价")
         df_b = self.loader.fetch(ticker_b, category="量价")
         
         if 'free_turn' not in df_a.columns or 'free_turn' not in df_b.columns:
-            print(f"  ⚠️ 警告: {ticker_a} 或 {ticker_b} 数据缺失 'free_turn' 列，跳过计算。")
+            print(f"  ⚠️ 警告: {ticker_a} 或 {ticker_b} 缺失换手率数据。")
             return
 
-        ratio = (df_a['free_turn'] / df_b['free_turn']).to_frame(name=f'{ticker_a}_对_{ticker_b}_相对换手率')
-        self._save_result(ratio, f"{ticker_a}_vs_{ticker_b}_rt.csv")
+        with np.errstate(divide='ignore', invalid='ignore'):
+            # 换手率分布通常极度右偏，log 处理后更适合用于回归或机器学习模型
+            ratio = np.log(df_a['free_turn'] / df_b['free_turn']).to_frame(name=f'{ticker_a}_对_{ticker_b}_对数相对换手率')
 
+        self._save_result(ratio, f"{ticker_a}_vs_{ticker_b}_rt.csv")
         
     # ---------------- 动量与趋势指标区 ----------------
     
@@ -257,11 +269,21 @@ class VolumePriceIndicators:
 # ==================================================
 # 实际运行脚本 (支持配置化与批量执行)
 # ==================================================
+
 if __name__ == "__main__":
-    # --- 1. 系统路径配置 ---
-    ROOT_PATH = r"E:\择时模型数据\指数量价数据-非日度更新"
-    OUTPUT_PATH = r"e:\AA-model\指标结果库"
+    import platform
+    # 获取脚本当前所在文件夹 (AA-model)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
+    if platform.system() == "Windows":
+        ROOT_PATH = r"E:\择时模型数据\指数量价数据-非日度更新"
+    else:
+        # Mac系统：自动定位到“原始数据”所在的父目录（通常是桌面）
+        ROOT_PATH = os.path.dirname(BASE_DIR)
+
+
+    OUTPUT_PATH = os.path.join(BASE_DIR, "指标结果库")
+
     """！！！在这里加标的！！！"""
     TARGET_ASSETS = ["000300.SH", "000905.SH", "000852.SH", "932000.CSI", "8841431.WI", "881001.WI"]
     

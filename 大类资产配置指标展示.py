@@ -13,6 +13,7 @@ import json
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from plotly.utils import PlotlyJSONEncoder
 from datetime import datetime
 
 # ==========================================
@@ -168,10 +169,13 @@ def create_line_chart(title: str, traces_data: list, subplot_titles: list = None
     )
 
     for idx, (trace_name, trace_y, color, width) in enumerate(traces_data, 1):
+        # 强制把 pandas/numpy 转成普通 JSON 兼容类型，避免 to_json 产生 {dtype,bdata} 导致前端异常绘图
+        x_vals = trace_y.index.astype(str).tolist()
+        y_vals = trace_y.tolist()
         fig.add_trace(
             go.Scatter(
-                x=trace_y.index,
-                y=trace_y.values,
+                x=x_vals,
+                y=y_vals,
                 mode='lines',
                 name=trace_name,
                 line=dict(
@@ -241,11 +245,13 @@ def create_bar_chart(title: str, traces_data: list) -> go.Figure:
     fig = make_subplots(rows=1, cols=1)
 
     for trace_name, trace_y, color in traces_data:
+        x_vals = trace_y.index.astype(str).tolist()
+        y_vals = trace_y.tolist()
         # 使用lines+markers模式，添加明亮的边框线使柱子更可见
         fig.add_trace(
             go.Bar(
-                x=trace_y.index,
-                y=trace_y.values,
+                x=x_vals,
+                y=y_vals,
                 name=trace_name,
                 marker=dict(
                     color=color,
@@ -343,10 +349,12 @@ def create_single_line_chart(title: str, trace_y: pd.Series, color: str, height:
     """创建单个标的的独立图表"""
     fig = make_subplots(rows=1, cols=1)
 
+    x_vals = trace_y.index.astype(str).tolist()
+    y_vals = trace_y.tolist()
     fig.add_trace(
         go.Scatter(
-            x=trace_y.index,
-            y=trace_y.values,
+            x=x_vals,
+            y=y_vals,
             mode='lines',
             name=trace_y.name if hasattr(trace_y, 'name') else title,
             line=dict(
@@ -510,12 +518,14 @@ def generate_html(indicators: dict, charts: dict) -> str:
             '''
 
     # 图表数据JSON
+    # 注意：不要用 fig.to_json() -> json.loads()，它可能包含 {dtype,bdata} 的压缩数组格式，
+    # 前端 plotly.js 在某些情况下无法正确解码，导致图表变成“直线/异常”。这里强制转成普通 JSON 兼容格式。
     charts_json = {}
     for chart_id, fig in charts.items():
         if fig:
-            charts_json[chart_id] = json.loads(fig.to_json())
+            charts_json[chart_id] = fig.to_plotly_json()
 
-    charts_json_str = json.dumps(charts_json, ensure_ascii=False)
+    charts_json_str = json.dumps(charts_json, ensure_ascii=False, cls=PlotlyJSONEncoder)
 
     html = f'''<!DOCTYPE html>
 <html lang="zh-CN">

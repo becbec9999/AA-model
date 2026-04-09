@@ -7,6 +7,7 @@ from functools import lru_cache
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from plotly.utils import PlotlyJSONEncoder
 
 # 导入配置
 import sys
@@ -162,8 +163,10 @@ class ChartService:
         if fig is None:
             return None
 
-        # 转换为字典（避免重复调用 to_json）
-        fig_json = json.loads(fig.to_json())
+        # 转换为字典
+        # 注意：避免 fig.to_json() 产生 {dtype,bdata} 的压缩数组格式，前端 plotly.js 可能解码异常导致“直线/空图”。
+        # 这里使用 to_plotly_json + PlotlyJSONEncoder，配合我们在 trace 中将 x/y 强制转为 list。
+        fig_json = json.loads(json.dumps(fig.to_plotly_json(), cls=PlotlyJSONEncoder))
         result = {
             'id': chart_id,
             'title': title,
@@ -203,10 +206,12 @@ class ChartService:
         """创建线图"""
         fig = make_subplots(rows=1, cols=1)
 
+        x_vals = df.index.astype(str).tolist()
+        y_vals = df[col_name].tolist()
         fig.add_trace(
             go.Scatter(
-                x=df.index,
-                y=df[col_name].values,
+                x=x_vals,
+                y=y_vals,
                 mode='lines',
                 name=df[col_name].name if hasattr(df[col_name], 'name') else title,
                 line=dict(
@@ -252,10 +257,12 @@ class ChartService:
         """创建柱状图"""
         fig = make_subplots(rows=1, cols=1)
 
+        x_vals = df.index.astype(str).tolist()
+        y_vals = df[col_name].tolist()
         fig.add_trace(
             go.Bar(
-                x=df.index,
-                y=df[col_name].values,
+                x=x_vals,
+                y=y_vals,
                 name=df[col_name].name if hasattr(df[col_name], 'name') else title,
                 marker=dict(
                     color=color,

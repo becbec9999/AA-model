@@ -37,8 +37,10 @@ e:/AA-model/
 │   └── factory.py
 │
 ├── static/                      # 前端静态文件
-│   ├── css/style.css
-│   └── js/app.js
+│   ├── css/style.css           # 设计系统样式
+│   └── js/
+│       ├── app.js              # 前端逻辑
+│       └── plotly.min.js       # 本地 Plotly 库（V5.5）
 │
 ├── templates/                   # HTML 模板
 │   └── index.html
@@ -274,6 +276,19 @@ JS 文件带有版本参数 `?v=20260322`，更新代码后刷新页面即可加
 ---
 
 ## 10. 版本历史
+
+### V5.5 (2026-04-13) - 加载圈问题修复
+- **问题描述**：页面一直显示加载圈，Plotly 图表渲染后 CSS 加载动画未正确消失
+- **根本原因**：`Plotly.newPlot()` 的 `.then()` 被正确调用，但 CSS `@keyframes spin` 加载动画状态异常
+- **修复方案**：
+  - 将 CSS 加载动画改为纯文本加载提示 `🔄 加载中...`
+  - 重构 `loadChart` 为同步回调模式，避免 Promise 挂起风险
+  - 添加详细的诊断日志
+  - 本地化 Plotly.js（从 BootCDN 下载到 `static/js/plotly.min.js`）
+- **涉及文件**：
+  - `static/js/app.js` - 重构加载逻辑
+  - `static/js/plotly.min.js` - 新增本地 Plotly 库
+  - `templates/index.html` - 更新引用路径
 
 ### V5.4 (2026-04-13)
 - **图表渲染修复**：修复前端 plotly.js 无法正确解码压缩数组格式的问题

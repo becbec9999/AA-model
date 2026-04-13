@@ -63,13 +63,42 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    import subprocess
+    import time
 
     # 生产环境设置 RELOAD=false 可禁用自动重载，提升性能
     reload_enabled = os.environ.get("RELOAD", "true").lower() != "false"
 
+    def _kill_port(port: int):
+        """Windows 下强制释放占用端口的进程"""
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano'], capture_output=True, text=True
+            )
+            for line in result.stdout.splitlines():
+                if f':{port}' in line and 'LISTENING' in line:
+                    parts = line.split()
+                    for p in parts:
+                        if p.isdigit() and int(p) > 0:
+                            pid = int(p)
+                            try:
+                                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                                             capture_output=True, timeout=3)
+                                print(f"  [清理] 已终止占用端口 {port} 的进程 PID={pid}")
+                            except Exception:
+                                pass
+                            break
+        except Exception:
+            pass
+
     print("=" * 60)
     print("AA-Model Dashboard Server V5.0")
     print("=" * 60)
+
+    # 启动前尝试释放端口
+    _kill_port(8000)
+    time.sleep(0.5)
+
     print("\n启动服务...")
     print("访问地址: http://localhost:8000")
     print(f"自动重载: {'启用' if reload_enabled else '禁用'}")
@@ -80,7 +109,7 @@ if __name__ == "__main__":
         "server:app",
         host="0.0.0.0",
         port=8000,
-        reload=reload_enabled,
+        reload=False,
         log_level="info"
     )
 

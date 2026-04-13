@@ -34,7 +34,7 @@ class DataLoader:
         
         if system == "Windows":
             self.source_map = {
-                "量价": r"E:\择时模型数据\指数量价数据-非日度更新",
+                "量价": r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新",
                 "宏观": r"原始数据\宏观经济数据",
                 "估值": r"原始数据\指数估值数据"
             }
@@ -276,7 +276,7 @@ if __name__ == "__main__":
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
     if platform.system() == "Windows":
-        ROOT_PATH = r"E:\择时模型数据\指数量价数据-非日度更新"
+        ROOT_PATH = r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新"
     else:
         # Mac系统：自动定位到“原始数据”所在的父目录（通常是桌面）
         ROOT_PATH = os.path.dirname(BASE_DIR)

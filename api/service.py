@@ -234,21 +234,22 @@ class ChartService:
             autosize=True,
             showlegend=True,
             legend=dict(orientation='h', y=-0.15, x=0.5, xanchor='center'),
-            template='plotly_dark',
             hovermode='x unified',
-            plot_bgcolor='#1e222d',
-            paper_bgcolor='#1e222d',
-            font=dict(color='#d1d4dc', family='Segoe UI'),
+            plot_bgcolor='#161b22',
+            paper_bgcolor='#161b22',
+            font=dict(color='#8b949e', family='Segoe UI'),
             margin=dict(l=60, r=40, t=60, b=80),
         )
 
         fig.update_xaxes(
             showgrid=True,
-            gridcolor='#363a45',
+            gridcolor='#21262d',
             rangeslider_visible=True,
             rangeslider_thickness=0.04,
+            tickfont=dict(color='#8b949e'),
+            spikecolor='#484f58',
         )
-        fig.update_yaxes(showgrid=True, gridcolor='#363a45', side='right', autorange=True)
+        fig.update_yaxes(showgrid=True, gridcolor='#21262d', side='right', autorange=True, tickfont=dict(color='#8b949e'))
 
         return fig
 
@@ -281,18 +282,17 @@ class ChartService:
             autosize=True,
             showlegend=True,
             legend=dict(orientation='h', y=-0.15, x=0.5, xanchor='center'),
-            template='plotly_dark',
             hovermode='x unified',
-            plot_bgcolor='#1e222d',
-            paper_bgcolor='#1e222d',
-            font=dict(color='#d1d4dc'),
+            plot_bgcolor='#161b22',
+            paper_bgcolor='#161b22',
+            font=dict(color='#8b949e'),
             margin=dict(l=60, r=40, t=60, b=80),
             barmode='group',
             bargroupgap=0.1,
         )
 
-        fig.update_xaxes(showgrid=True, gridcolor='#363a45', rangeslider_visible=True, rangeslider_thickness=0.04)
-        fig.update_yaxes(showgrid=True, gridcolor='#363a45', side='right')
+        fig.update_xaxes(showgrid=True, gridcolor='#21262d', rangeslider_visible=True, rangeslider_thickness=0.04, tickfont=dict(color='#8b949e'))
+        fig.update_yaxes(showgrid=True, gridcolor='#21262d', side='right', tickfont=dict(color='#8b949e'))
 
         return fig
 

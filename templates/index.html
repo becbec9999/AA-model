@@ -3,9 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>大类资产配置指标监控面板</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <title>大类资产配置指标监控</title>
+    <!-- Font preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="/static/css/style.css?v=20260413">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23161b22'/><path d='M6 22 L10 14 L14 18 L18 10 L22 16 L26 8' stroke='%2358a6ff' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+    <script src="/static/js/plotly.min.js"></script>
 </head>
 <body>
     <!-- 工具栏 -->
@@ -63,7 +67,7 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=20260322a"></script>
+    <script src="/static/js/app.js?v=20260413f"></script>
     <script>
         document.getElementById('updateTime').textContent = '更新: ' + new Date().toLocaleString('zh-CN');
     </script>

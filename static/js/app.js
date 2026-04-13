@@ -49,31 +49,52 @@ let currentRange = '6M';
 let chartCache = {};  // 图表数据缓存
 
 // DOM 加载完成后初始化
-document.addEventListener('DOMContentLoaded', async function() {
-    try {
-        // 加载指标列表
-        const response = await fetch('/api/indicators');
-        const data = await response.json();
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[初始化] 开始初始化');
 
-        // 渲染导航
-        renderNavigator(data.indicators);
-
-        // 绑定时间范围按钮
-        bindRangeButtons();
-
-        // 绑定自定义日期范围
-        bindCustomDateRange();
-
-        // 自动点击第一个指标
-        const firstNavItem = document.querySelector('.nav-item');
-        if (firstNavItem) {
-            firstNavItem.click();
-        }
-    } catch (error) {
-        console.error('初始化失败:', error);
-        document.getElementById('mainChart').innerHTML =
-            '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>加载失败</h2><p>' + error.message + '</p></div>';
+    // 检查 Plotly
+    if (typeof Plotly === 'undefined') {
+        console.error('[初始化] Plotly 未定义!');
+        document.getElementById('mainChart').innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>加载失败</h2><p>Plotly 库未加载，请检查网络后刷新页面</p></div>';
+        return;
     }
+    console.log('[初始化] Plotly 已就绪');
+
+    // 加载指标列表
+    fetch('/api/indicators')
+        .then(function(response) {
+            console.log('[初始化] API响应:', response.status);
+            if (!response.ok) {
+                throw new Error('获取指标列表失败');
+            }
+            return response.json();
+        })
+        .then(function(data) {
+            console.log('[初始化] 指标数据获取成功, 数量:', Object.keys(data.indicators).length);
+
+            // 渲染导航
+            renderNavigator(data.indicators);
+
+            // 绑定时间范围按钮
+            bindRangeButtons();
+
+            // 绑定自定义日期范围
+            bindCustomDateRange();
+
+            // 自动点击第一个指标
+            var firstNavItem = document.querySelector('.nav-item');
+            if (firstNavItem) {
+                console.log('[初始化] 自动点击第一个指标');
+                firstNavItem.click();
+            } else {
+                console.error('[初始化] 未找到指标项');
+                document.getElementById('mainChart').innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>暂无指标</h2><p>请检查数据源</p></div>';
+            }
+        })
+        .catch(function(error) {
+            console.error('[初始化] 失败:', error);
+            document.getElementById('mainChart').innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>加载失败</h2><p>' + error.message + '</p></div>';
+        });
 });
 
 // 获取标的名称
@@ -327,70 +348,130 @@ function getDateRange(range, dataEndDate) {
     return startDate;
 }
 
-// 加载图表
-async function loadChart(chartId) {
+// 加载图表 - 使用同步回调模式避免 Promise 挂起问题
+function loadChart(chartId) {
+    console.log('[loadChart] 开始加载图表:', chartId);
+
+    // 获取元素引用
     const container = document.getElementById('mainChart');
     const titleEl = document.getElementById('chartTitle');
     const legendEl = document.getElementById('chartLegend');
 
-    // 显示加载状态
-    container.innerHTML = '<div class="loading">加载中...</div>';
+    if (!container || !titleEl || !legendEl) {
+        console.error('[loadChart] DOM 元素未找到');
+        return;
+    }
+
+    // 显示加载状态 - 使用纯文本加载提示
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b949e;font-size:14px;">&#128260; 加载中...</div>';
     titleEl.textContent = '加载中...';
     legendEl.innerHTML = '';
 
+    console.log('[loadChart] 步骤1: 加载状态已显示');
+
+    // 检查 Plotly
+    if (typeof Plotly === 'undefined') {
+        console.error('[loadChart] Plotly 未定义');
+        container.innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>加载失败</h2><p>Plotly 库未加载，请刷新页面</p></div>';
+        return;
+    }
+    console.log('[loadChart] 步骤2: Plotly 已加载');
+
+    // 清除之前的图表
+    console.log('[loadChart] 步骤3: 清除旧图表');
+    Plotly.purge(container);
+
+    // 获取图表数据
+    let chartConfig = chartCache[chartId];
+
+    if (!chartConfig) {
+        console.log('[loadChart] 步骤4: 从API获取数据');
+        fetch(`/api/charts/${chartId}`)
+            .then(function(response) {
+                console.log('[loadChart] API响应状态:', response.status);
+                if (!response.ok) {
+                    throw new Error('图表不存在');
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                console.log('[loadChart] API数据获取成功');
+                chartCache[chartId] = data;
+                renderChartWithData(container, titleEl, legendEl, data, chartId);
+            })
+            .catch(function(error) {
+                console.error('[loadChart] 获取数据失败:', error);
+                container.innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>加载失败</h2><p>' + error.message + '</p></div>';
+            });
+    } else {
+        console.log('[loadChart] 步骤4: 使用缓存数据');
+        renderChartWithData(container, titleEl, legendEl, chartConfig, chartId);
+    }
+}
+
+// 渲染图表（从缓存或刚获取的数据）
+function renderChartWithData(container, titleEl, legendEl, chartConfig, chartId) {
+    console.log('[renderChartWithData] 开始渲染, chartId:', chartId);
+
+    // 更新标题
+    titleEl.textContent = chartConfig.title;
+
+    console.log('[renderChartWithData] 数据格式检查:', {
+        hasData: !!chartConfig.data,
+        dataLength: chartConfig.data ? chartConfig.data.length : 0,
+        hasLayout: !!chartConfig.layout
+    });
+
+    // 设置超时保护
+    var renderTimeout = setTimeout(function() {
+        console.error('[renderChartWithData] 渲染超时!');
+        container.innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>渲染超时</h2><p>请刷新页面重试</p></div>';
+    }, 20000);
+
+    // 使用 Plotly.newPlot
     try {
-        // 从缓存或API获取数据
-        let chartConfig = chartCache[chartId];
-        if (!chartConfig) {
-            const response = await fetch(`/api/charts/${chartId}`);
-            if (!response.ok) {
-                throw new Error('图表不存在');
-            }
-            chartConfig = await response.json();
-            chartCache[chartId] = chartConfig;
-        }
-
-        // 更新标题
-        titleEl.textContent = chartConfig.title;
-
-        // 渲染图表
         Plotly.newPlot(container, chartConfig.data, chartConfig.layout, {
             responsive: true,
             displayModeBar: true,
             scrollZoom: true,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
             displaylogo: false,
+        }).then(function() {
+            clearTimeout(renderTimeout);
+            console.log('[renderChartWithData] 渲染成功!');
+
+            // 强制清除可能残留的加载状态
+            var loadingEl = container.querySelector('.loading');
+            if (loadingEl) {
+                loadingEl.remove();
+            }
+
+            // 更新图例
+            legendEl.innerHTML = '';
+            if (chartConfig.data && chartConfig.data.length > 0) {
+                var colors = ['#00b8a9', '#f75b5b', '#f7cc35', '#4caf50', '#9c27b0', '#2196f3'];
+                chartConfig.data.forEach(function(trace, i) {
+                    if (trace.name) {
+                        var color = colors[i % colors.length];
+                        legendEl.innerHTML += '<span class="legend-item"><span class="legend-line" style="background: ' + color + '"></span>' + trace.name + '</span>';
+                    }
+                });
+            }
+
+            currentChartId = chartId;
+
+            // 应用时间范围
+            console.log('[renderChartWithData] 应用时间范围');
+            applyTimeRange();
+        }).catch(function(err) {
+            clearTimeout(renderTimeout);
+            console.error('[renderChartWithData] 渲染失败:', err);
+            container.innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>渲染失败</h2><p>' + err.message + '</p></div>';
         });
-
-        // 更新图例
-        legendEl.innerHTML = '';
-        if (chartConfig.data && chartConfig.data.length > 0) {
-            const colors = ['#00b8a9', '#f75b5b', '#f7cc35', '#4caf50', '#9c27b0', '#2196f3'];
-            chartConfig.data.forEach((trace, i) => {
-                if (trace.name) {
-                    const color = colors[i % colors.length];
-                    legendEl.innerHTML += `
-                    <span class="legend-item">
-                      <span class="legend-line" style="background: ${color}"></span>
-                      ${trace.name}
-                    </span>`;
-                }
-            });
-        }
-
-        currentChartId = chartId;
-
-        // 应用当前时间范围
-        applyTimeRange();
-
-    } catch (error) {
-        console.error('加载图表失败:', error);
-        container.innerHTML = `
-        <div class="welcome">
-            <div class="welcome-icon">&#9888;</div>
-            <h2>加载失败</h2>
-            <p>${error.message}</p>
-        </div>`;
+    } catch (e) {
+        clearTimeout(renderTimeout);
+        console.error('[renderChartWithData] Plotly.newPlot 抛出异常:', e);
+        container.innerHTML = '<div class="welcome"><div class="welcome-icon">&#9888;</div><h2>渲染异常</h2><p>' + e.message + '</p></div>';
     }
 }
 

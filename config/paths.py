@@ -13,6 +13,7 @@ PROJECT_ROOT = get_project_root()
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(PROJECT_ROOT, "指标结果库"))
 
 # ETF数据路径（支持环境变量覆盖）
+# 与数据下载脚本 wind_overseas_yahoo_zjywnx.py 的 short_path 保持一致（对齐后的数据）
 DATA_DIR = os.environ.get("DATA_DIR", r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新")
 
 # 输出的HTML文件

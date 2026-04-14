@@ -22,6 +22,9 @@ class ChartService:
 
     # 默认颜色
     DEFAULT_COLORS = ['#00b8a9', '#f75b5b', '#f7cc35', '#4caf50', '#9c27b0', '#2196f3']
+    # 全局统计叠加层开关（均线 + 标准差带 + 均值线）
+    # 环境变量: SHOW_STATS_OVERLAY=false 可一键关闭全部统计叠加展示
+    SHOW_STATS_OVERLAY = os.environ.get("SHOW_STATS_OVERLAY", "true").lower() != "false"
 
     # 时间窗口映射（交易日数量）
     TIME_WINDOWS = {
@@ -119,7 +122,12 @@ class ChartService:
             return f"{pattern}_{ticker}"
 
     @classmethod
-    def get_chart_data(cls, chart_id: str, rolling_window: str = '1Y') -> Optional[Dict]:
+    def get_chart_data(
+        cls,
+        chart_id: str,
+        rolling_window: str = '1Y',
+        show_stats_overlay: Optional[bool] = None
+    ) -> Optional[Dict]:
         # Get chart data with specified rolling window
         # Args:
         #   chart_id: Chart ID (format: pattern_ticker)
@@ -127,7 +135,8 @@ class ChartService:
         # Returns:
         #   Dictionary containing data and layout
         # Check cache (key includes rolling window)
-        cache_key = f"{chart_id}_{rolling_window}"
+        effective_show_stats = cls.SHOW_STATS_OVERLAY if show_stats_overlay is None else show_stats_overlay
+        cache_key = f"{chart_id}_{rolling_window}_{int(effective_show_stats)}"
         if cache_key in cls._chart_cache:
             return cls._chart_cache[cache_key]
 
@@ -166,7 +175,14 @@ class ChartService:
             title = f"{name} {window}日{target_ind['name']}"
 
         # 创建图表（传入滚动窗口参数）
-        fig = cls._create_chart(target_ind['pattern'], title, df, color, rolling_window)
+        fig = cls._create_chart(
+            target_ind['pattern'],
+            title,
+            df,
+            color,
+            rolling_window,
+            show_stats_overlay=effective_show_stats
+        )
 
         if fig is None:
             return None
@@ -188,30 +204,72 @@ class ChartService:
         return result
 
     @classmethod
-    def _create_chart(cls, pattern: str, title: str, df: pd.DataFrame, color: str, rolling_window: str = '1Y') -> Optional[go.Figure]:
+    def _create_chart(
+        cls,
+        pattern: str,
+        title: str,
+        df: pd.DataFrame,
+        color: str,
+        rolling_window: str = '1Y',
+        show_stats_overlay: Optional[bool] = None
+    ) -> Optional[go.Figure]:
         """根据指标类型创建图表"""
         if df.empty:
             return None
 
         col_name = df.columns[0]
 
-        if pattern in ['ma', 'mom', 'ma_dev', 'vol', 'rsi', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp']:
+        global_overlay = cls.SHOW_STATS_OVERLAY if show_stats_overlay is None else show_stats_overlay
+
+        if pattern in ['ma', 'ma_turnover', 'mom', 'ma_dev', 'vol', 'rsi', 'rsi_analysis', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp', 'market_amt_ratio']:
             # 线图
-            return cls._create_line_chart(title, df, col_name, color, rolling_window)
+            pattern_overlay = pattern not in ['high_new', 'low_new']
+            return cls._create_line_chart(
+                title,
+                df,
+                col_name,
+                color,
+                rolling_window,
+                show_stats_overlay=(global_overlay and pattern_overlay),
+                y_as_percent=(pattern == 'market_amt_ratio')
+            )
         elif pattern in ['amt', 'pchg_abs']:
             # 柱状图
             return cls._create_bar_chart(title, df, col_name, color)
         elif pattern == 'rs':
             # 相对强弱 - 线图
-            return cls._create_line_chart(title, df, col_name, color, rolling_window)
+            return cls._create_line_chart(
+                title,
+                df,
+                col_name,
+                color,
+                rolling_window,
+                show_stats_overlay=global_overlay
+            )
         elif pattern == 'rt':
             # 相对换手率 - 线图
-            return cls._create_line_chart(title, df, col_name, color, rolling_window)
+            return cls._create_line_chart(
+                title,
+                df,
+                col_name,
+                color,
+                rolling_window,
+                show_stats_overlay=global_overlay
+            )
 
         return None
 
     @classmethod
-    def _create_line_chart(cls, title: str, df: pd.DataFrame, col_name: str, color: str, rolling_window: str = '1Y') -> go.Figure:
+    def _create_line_chart(
+        cls,
+        title: str,
+        df: pd.DataFrame,
+        col_name: str,
+        color: str,
+        rolling_window: str = '1Y',
+        show_stats_overlay: bool = True,
+        y_as_percent: bool = False
+    ) -> go.Figure:
         """创建增强线图 - 工业实用主义设计"""
         fig = make_subplots(rows=1, cols=1)
 
@@ -247,7 +305,7 @@ class ChartService:
         y_max = df[col_name].max()
 
         # 0. 添加动态标准差带（±1σ 和 ±2σ）
-        if len(y_vals) > 5 and std_val > 0:
+        if show_stats_overlay and len(y_vals) > 5 and std_val > 0:
             # +2σ 带（最外层）- 加粗虚线
             upper_2sigma = (rolling_mean + 2 * rolling_std).tolist()
             fig.add_trace(
@@ -356,7 +414,7 @@ class ChartService:
         )
 
         # 2. 添加均值线（工业感虚线）
-        if len(y_vals) > 0:
+        if show_stats_overlay and len(y_vals) > 0:
             # 根据数据范围确定标注格式
             fmt = cls._get_tick_format(y_vals)
             mean_text = f"均值: {mean_val:{fmt['tickformat']}}"
@@ -426,7 +484,7 @@ class ChartService:
                 size=12,
             ),
             margin=dict(l=70, r=70, t=80, b=150),
-            separators=',',
+            separators='.,',
             xaxis_rangeslider_visible=True,
             xaxis_rangeslider_thickness=0.08,
             xaxis_rangeslider_bgcolor='rgba(20, 23, 31, 0.5)',
@@ -470,6 +528,7 @@ class ChartService:
             separatethousands=tick_fmt['separatethousands'],
             tickformat=tick_fmt['tickformat'],
             hoverformat=tick_fmt['hoverformat'],
+            ticksuffix='%' if y_as_percent else '',
         )
 
         return fig

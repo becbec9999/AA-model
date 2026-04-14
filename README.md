@@ -23,6 +23,8 @@ cd e:\AA-model
 python server.py
 ```
 
+> 默认入口：`python server.py`（FastAPI 版本，主维护）
+
 ### 3. 访问页面
 
 浏览器打开：**http://localhost:8000**
@@ -184,6 +186,14 @@ python AA_Indicators.py
 ```
 
 计算完成后，刷新浏览器页面即可看到最新数据。
+
+---
+
+## 旧版脚本说明（归档）
+
+- `大类资产配置指标展示.py` 与 `每日量价跟踪报告.html` 为历史兼容方案，仅用于离线单文件导出。
+- 日常使用与后续功能更新请统一走 FastAPI 版本：`python server.py`。
+- 除非有明确离线分发需求，不建议继续维护旧版脚本逻辑。
 
 ---
 

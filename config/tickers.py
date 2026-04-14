@@ -8,6 +8,10 @@ TICKER_CONFIG = {
     '932000.CSI': {'name': '科创50', 'color': '#4caf50'},
     '8841431.WI': {'name': '万得微盘股指数', 'color': '#9c27b0'},
     '881001.WI': {'name': '万得全A', 'color': '#2196f3'},
+    'SH_510050IV.WI': {'name': '50ETF隐含波动率', 'color': '#ff9800'},
+    'SH_510300IV.WI': {'name': '300ETF隐含波动率', 'color': '#ffb74d'},
+    'SH_510500IV.WI': {'name': '500ETF隐含波动率', 'color': '#ff7043'},
+    'CFE_000852IV.WI': {'name': '中证1000股指隐含波动率', 'color': '#ab47bc'},
 }
 
 # 用于兼容旧代码的别名

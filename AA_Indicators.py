@@ -119,18 +119,19 @@ class VolumePriceIndicators:
         ind_df = df[['amt']].rename(columns={'amt': f'{ticker}_成交额'})
         self._save_result(ind_df, f"{ticker}_amt.csv")
     
-    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "930709.CSI"):
+    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "881001.WI"):
         """
-        计算成交额占全市场的对数占比 (Log Amount Ratio)
-        公式：log(ticker_amt / market_amt)
+        计算成交额占万得全A（或指定市场指数）的百分比。
+        公式：(ticker_amt / market_amt) * 100
         """
         df = self.loader.fetch(ticker, category="量价")
         df_market = self.loader.fetch(market_ticker, category="量价")
-        
-        # 使用 log 避免成交额绝对值差距过大，反映相对活跃度的变动
+
+        # 计算成交额占比百分数；按时间索引自动对齐，分母为 0 或无效值统一转为 NaN
         with np.errstate(divide='ignore', invalid='ignore'):
-            ratio = np.log(df['amt'] / df_market['amt']).to_frame(name=f'{ticker}_成交额对数占比')
-            
+            ratio = (df['amt'].div(df_market['amt']) * 100).to_frame(name=f'{ticker}_成交额占比(%)')
+            ratio = ratio.replace([np.inf, -np.inf], np.nan)
+
         self._save_result(ratio, f"{ticker}_vs_market_amt_ratio.csv")
 
     def calc_relative_strength(self, ticker_a: str, ticker_b: str):

@@ -109,7 +109,7 @@ if __name__ == "__main__":
         "server:app",
         host="0.0.0.0",
         port=8000,
-        reload=False,
+        reload=reload_enabled,
         log_level="info"
     )
 

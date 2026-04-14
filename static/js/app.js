@@ -8,6 +8,10 @@ const TICKER_NAMES = {
     '932000.CSI': '科创50',
     '8841431.WI': '万得微盘股指数',
     '881001.WI': '万得全A',
+    'SH_510050IV.WI': '50ETF隐含波动率',
+    'SH_510300IV.WI': '300ETF隐含波动率',
+    'SH_510500IV.WI': '500ETF隐含波动率',
+    'CFE_000852IV.WI': '中证1000股指隐含波动率',
 };
 
 // 标的颜色映射
@@ -18,6 +22,10 @@ const TICKER_COLORS = {
     '932000.CSI': '#4caf50',
     '8841431.WI': '#9c27b0',
     '881001.WI': '#2196f3',
+    'SH_510050IV.WI': '#ff9800',
+    'SH_510300IV.WI': '#ffb74d',
+    'SH_510500IV.WI': '#ff7043',
+    'CFE_000852IV.WI': '#ab47bc',
 };
 
 // 指标分类配置（按数据类别 + 分析目的）
@@ -26,9 +34,9 @@ const INDICATOR_CATEGORIES = {
     '量价指标类': {
         description: '量价类技术指标',
         subcategories: {
-            '趋势跟踪': { patterns: ['ma', 'ma_dev'], description: '均线及偏离度' },
-            '动量反转': { patterns: ['mom', 'rsi'], description: '动量指标及RSI' },
-            '波动风险': { patterns: ['vol'], description: '年化波动率' },
+            '趋势跟踪': { patterns: ['ma', 'ma_dev', 'high_new', 'low_new'], description: '均线、偏离度及新高新低' },
+            '动量反转': { patterns: ['mom', 'rsi', 'rsi_analysis', 'return_acf1'], description: '动量、RSI及趋势连续度' },
+            '波动风险': { patterns: ['vol', 'iv'], description: '年化波动率及隐含波动率' },
             '市场情绪': { patterns: ['amt', 'ma_turnover', 'pchg_abs', 'market_amt_ratio'], description: '成交额及换手率' },
             '风格切换': { patterns: ['rs', 'rt'], description: '相对强弱比' }
         }
@@ -47,11 +55,14 @@ const INDICATOR_CATEGORIES = {
 let currentChartId = null;
 let currentRange = '6M';
 let currentRollingWindow = '1Y';  // 当前滚动窗口期
+let currentShowStatsOverlay = localStorage.getItem('showStatsOverlay') !== 'false';  // 叠加层开关
 let chartCache = {};  // 图表数据缓存
 const CACHE_EXPIRY_MS = 5 * 60 * 1000;  // 缓存过期时间：5分钟
 let chartEnhancer = null;  // 图表增强器实例
 let dataFlowVisualizer = null;  // 数据流可视化实例
 let allIndicators = null;  // 所有指标数据
+const ENABLE_CHART_ENHANCER = false;  // 关闭闪烁高亮点效果
+const ENABLE_DATA_FLOW_VISUALIZER = false;  // 关闭流动圆点/连接线效果
 
 /* ================================================
    性能优化工具函数
@@ -188,6 +199,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // 绑定滚动窗口选择按钮
             bindWindowButtons();
+            // 绑定叠加层开关
+            bindStatsOverlayToggle();
 
             // 绑定自定义日期范围
             bindCustomDateRange();
@@ -244,16 +257,26 @@ function getIndicatorDisplayName(ind) {
             return `${tickerName} ${window}日动量`;
         case 'vol':
             return `${tickerName} ${window}日波动率`;
+        case 'iv':
+            return `${tickerName} 隐含波动率`;
         case 'amt':
             return `${tickerName} 成交额`;
         case 'pchg_abs':
             return `${tickerName} 涨跌幅`;
+        case 'high_new':
+            return `${tickerName} ${window}日新高信号`;
+        case 'low_new':
+            return `${tickerName} ${window}日新低信号`;
+        case 'return_acf1':
+            return `${tickerName} ${window}日趋势连续度`;
         case 'rs':
             return `${tickerName} 相对强弱`;
         case 'rt':
             return `${tickerName} 相对换手率`;
         case 'rsi':
             return `${tickerName} RSI`;
+        case 'rsi_analysis':
+            return `${tickerName} RSI分析`;
         case 'ma_turnover':
             return `${tickerName} ${window}日换手率`;
         case 'market_amt_ratio':
@@ -445,6 +468,40 @@ function bindWindowButtons() {
                 }
             }
         });
+    });
+}
+
+// 绑定叠加层开关按钮
+function bindStatsOverlayToggle() {
+    const btn = document.getElementById('statsOverlayToggle');
+    if (!btn) return;
+
+    const updateButtonState = () => {
+        if (currentShowStatsOverlay) {
+            btn.classList.add('active');
+            btn.textContent = '叠加层: 开';
+        } else {
+            btn.classList.remove('active');
+            btn.textContent = '叠加层: 关';
+        }
+    };
+
+    updateButtonState();
+
+    btn.addEventListener('click', function() {
+        currentShowStatsOverlay = !currentShowStatsOverlay;
+        localStorage.setItem('showStatsOverlay', String(currentShowStatsOverlay));
+        updateButtonState();
+
+        // 切换后重载当前图以应用新设置
+        if (currentChartId) {
+            Object.keys(chartCache).forEach(key => {
+                if (key.startsWith(currentChartId + '_')) {
+                    delete chartCache[key];
+                }
+            });
+            loadChart(currentChartId);
+        }
     });
 }
 
@@ -789,7 +846,7 @@ function loadChart(chartId) {
     Plotly.purge(container);
 
     // 获取图表数据 - 带缓存过期检查（缓存键包含 rolling window）
-    const cacheKey = chartId + '_' + currentRollingWindow;
+    const cacheKey = chartId + '_' + currentRollingWindow + '_stats' + (currentShowStatsOverlay ? '1' : '0');
     const cachedEntry = chartCache[cacheKey];
     let chartConfig = null;
     let cacheValid = false;
@@ -817,7 +874,7 @@ function loadChart(chartId) {
 
     if (!cacheValid) {
         console.log('[loadChart] 步骤4: 从API获取数据');
-        fetch(`/api/charts/${chartId}?window=${currentRollingWindow}`)
+        fetch(`/api/charts/${chartId}?window=${currentRollingWindow}&show_stats=${currentShowStatsOverlay}`)
             .then(function(response) {
                 console.log('[loadChart] API响应状态:', response.status);
                 if (!response.ok) {
@@ -894,36 +951,40 @@ function renderChartWithData(container, titleEl, legendEl, chartConfig, chartId)
 
             currentChartId = chartId;
 
-            // 初始化图表增强器
-            console.log('[renderChartWithData] 初始化图表增强器');
-            if (typeof ChartEnhancer !== 'undefined') {
-                // 销毁旧的增强器实例
-                if (chartEnhancer && typeof chartEnhancer.destroy === 'function') {
-                    chartEnhancer.destroy();
+            // 初始化图表增强器（可开关）
+            if (ENABLE_CHART_ENHANCER) {
+                console.log('[renderChartWithData] 初始化图表增强器');
+                if (typeof ChartEnhancer !== 'undefined') {
+                    // 销毁旧的增强器实例
+                    if (chartEnhancer && typeof chartEnhancer.destroy === 'function') {
+                        chartEnhancer.destroy();
+                    }
+                    // 创建新的增强器实例
+                    chartEnhancer = new ChartEnhancer('mainChart');
+                    console.log('[renderChartWithData] 图表增强器初始化完成');
+                } else {
+                    console.warn('[renderChartWithData] ChartEnhancer 未定义，请检查脚本加载');
                 }
-                // 创建新的增强器实例
-                chartEnhancer = new ChartEnhancer('mainChart');
-                console.log('[renderChartWithData] 图表增强器初始化完成');
-            } else {
-                console.warn('[renderChartWithData] ChartEnhancer 未定义，请检查脚本加载');
             }
 
-            // 初始化数据流可视化
-            console.log('[renderChartWithData] 初始化数据流可视化');
-            if (typeof DataFlowVisualizer !== 'undefined') {
-                // 停止旧的可视化实例
-                if (dataFlowVisualizer && typeof dataFlowVisualizer.stop === 'function') {
-                    dataFlowVisualizer.stop();
+            // 初始化数据流可视化（可开关）
+            if (ENABLE_DATA_FLOW_VISUALIZER) {
+                console.log('[renderChartWithData] 初始化数据流可视化');
+                if (typeof DataFlowVisualizer !== 'undefined') {
+                    // 停止旧的可视化实例
+                    if (dataFlowVisualizer && typeof dataFlowVisualizer.stop === 'function') {
+                        dataFlowVisualizer.stop();
+                    }
+                    // 创建新的可视化实例
+                    dataFlowVisualizer = new DataFlowVisualizer('mainChart');
+                    dataFlowVisualizer.start();
+                    // 根据设备性能调整数据流强度
+                    const intensity = getDataFlowIntensity();
+                    dataFlowVisualizer.setIntensity(intensity);
+                    console.log(`[renderChartWithData] 数据流可视化启动完成，强度: ${intensity.toFixed(2)}`);
+                } else {
+                    console.warn('[renderChartWithData] DataFlowVisualizer 未定义，请检查脚本加载');
                 }
-                // 创建新的可视化实例
-                dataFlowVisualizer = new DataFlowVisualizer('mainChart');
-                dataFlowVisualizer.start();
-                // 根据设备性能调整数据流强度
-                const intensity = getDataFlowIntensity();
-                dataFlowVisualizer.setIntensity(intensity);
-                console.log(`[renderChartWithData] 数据流可视化启动完成，强度: ${intensity.toFixed(2)}`);
-            } else {
-                console.warn('[renderChartWithData] DataFlowVisualizer 未定义，请检查脚本加载');
             }
 
             // 应用时间范围

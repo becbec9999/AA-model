@@ -18,6 +18,20 @@ def classify_indicator(filename: str) -> Optional[dict]:
     """
     name = filename.replace('.csv', '').replace('.pkl', '')
 
+    # 特殊格式: ticker_vs_market_amt_ratio
+    # 这是“单标的对全市场占比”，不是跨标的对比
+    market_ratio_match = re.match(r'^(.+?)_vs_market_amt_ratio$', name)
+    if market_ratio_match:
+        ticker = market_ratio_match.group(1)
+        return {
+            'pattern': 'market_amt_ratio',
+            'ticker': ticker,
+            'ticker_a': None,
+            'ticker_b': None,
+            'window': None,
+            'is_cross': False
+        }
+
     # 跨标的对比格式: tickerA_vs_tickerB_pattern
     cross_pattern = r'(.+?)_vs_(.+?)_(.+)'
     cross_match = re.match(cross_pattern, name)

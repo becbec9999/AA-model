@@ -216,6 +216,78 @@ class VolumePriceIndicators:
             deviation = ((df['close'] - ma) / ma * 100).to_frame(name=f'{ticker}_偏离度_{n}日')
             self._save_result(deviation, f"{ticker}_ma_dev_{n}d.csv")
 
+    def calc_and_save_high_new(self, ticker: str, windows: List[int] = [90, 250, 750]):
+        """
+        是否新高：当日收盘价是否等于近 N 日收盘价最大值。
+        公式：HIGH_NEW(N) = IF(CLOSE = MAX(CLOSE, N), 1, 0)
+        默认 N=90/250/750，约对应 3 个月 / 1 年 / 3 年交易日。
+        """
+        df = self.loader.fetch(ticker, category="量价")
+        close = df["close"]
+        for n in windows:
+            roll_max = close.rolling(window=n, min_periods=n).max()
+            # 窗口未满时不标记 0/1，避免与 roll_max 为 NaN 时误得 False
+            high_new = (
+                (close == roll_max).where(roll_max.notna()).astype(np.float64).to_frame(
+                    name=f"{ticker}_是否新高_{n}日"
+                )
+            )
+            self._save_result(high_new, f"{ticker}_high_new_{n}d.csv")
+
+    def calc_and_save_low_new(self, ticker: str, windows: List[int] = [90, 250, 750]):
+        """
+        是否新低：当日收盘价是否等于近 N 日收盘价最小值。
+        公式：LOW_NEW(N) = IF(CLOSE = MIN(CLOSE, N), 1, 0)
+        默认 N=90/250/750，约对应 3 个月 / 1 年 / 3 年交易日。
+        """
+        df = self.loader.fetch(ticker, category="量价")
+        close = df["close"]
+        for n in windows:
+            roll_min = close.rolling(window=n, min_periods=n).min()
+            low_new = (
+                (close == roll_min).where(roll_min.notna()).astype(np.float64).to_frame(
+                    name=f"{ticker}_是否新低_{n}日"
+                )
+            )
+            self._save_result(low_new, f"{ticker}_low_new_{n}d.csv")
+
+    def calc_and_save_return_acf1(self, ticker: str, windows: List[int] = [20, 60, 120]):
+        """
+        趋势连续度：日收益率序列的一阶自相关系数 ACF(1)。
+        公式：ACF_1 = AUTOCORRELATION(RETURN, 1)；在滚动窗口内对日简单收益率计算样本 lag-1 自相关。
+        """
+        df = self.loader.fetch(ticker, category="量价")
+        ret = df["close"].pct_change()
+
+        def _lag1_acf(x: pd.Series) -> float:
+            s = x.dropna()
+            if len(s) < 3:
+                return np.nan
+            v = s.autocorr(lag=1)
+            return float(v) if v == v else np.nan
+
+        for n in windows:
+            acf1 = ret.rolling(window=n, min_periods=n).apply(
+                _lag1_acf, raw=False
+            ).to_frame(name=f"{ticker}_趋势连续度_{n}日")
+            self._save_result(acf1, f"{ticker}_return_acf1_{n}d.csv")
+
+    def calc_and_save_implied_vol(self, iv_ticker: str):
+        """
+        隐含波动率（IV）指标。
+
+        说明：
+        - Wind 的 IV 指数（如 SH_510050IV.WI）本身就是隐含波动率序列
+        - 这里直接取其 close 作为 IV 值输出
+        """
+        df = self.loader.fetch(iv_ticker, category="量价")
+        if "close" not in df.columns:
+            print(f"  ⚠️ 警告: {iv_ticker} 缺失 close 列，无法生成 IV 指标。")
+            return
+
+        iv = pd.to_numeric(df["close"], errors="coerce").to_frame(name=f"{iv_ticker}_隐含波动率")
+        self._save_result(iv, f"{iv_ticker}_iv.csv")
+
     def calc_and_save_rsi_percentile(self, ticker: str, rsi_win: int = 14, p_win: int = 120):
         """计算 RSI 及 30%/70% 分位值"""
         df = self.loader.fetch(ticker, category="量价")
@@ -286,6 +358,7 @@ if __name__ == "__main__":
 
     """！！！在这里加标的！！！"""
     TARGET_ASSETS = ["000300.SH", "000905.SH", "000852.SH", "932000.CSI", "8841431.WI", "881001.WI"]
+    IV_ASSETS = ["SH_510050IV.WI", "SH_510300IV.WI", "SH_510500IV.WI", "CFE_000852IV.WI"]
     
     print("="*50)
     print("启动投研指标批量生产任务")
@@ -309,6 +382,14 @@ if __name__ == "__main__":
         vp_module.calc_and_save_ma_deviation(ticker)
         vp_module.calc_and_save_rsi_percentile(ticker)
         vp_module.calc_and_save_volatility(ticker, windows=[20, 60, 120])
+        vp_module.calc_and_save_high_new(ticker)
+        vp_module.calc_and_save_low_new(ticker)
+        vp_module.calc_and_save_return_acf1(ticker, windows=[20, 60, 120])
+
+    print("\n正在处理隐含波动率（IV）指标...")
+    for iv_ticker in IV_ASSETS:
+        print(f"\n正在处理IV指数: [ {iv_ticker} ]")
+        vp_module.calc_and_save_implied_vol(iv_ticker)
         
     print("\n正在处理跨品种指标...")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="000905.SH")

@@ -31,10 +31,20 @@ async def get_tickers():
 
 
 @router.get('/charts/{chart_id}', response_model=ChartData)
-async def get_chart(chart_id: str):
-    """获取指定图表的完整数据"""
+async def get_chart(chart_id: str, window: str = '1Y'):
+    """获取指定图表的完整数据
+
+    Args:
+        chart_id: 图表ID
+        window: 滚动窗口期 ('6M', '1Y', '3Y', '5Y', 'ALL')
+    """
+    # 验证窗口参数
+    valid_windows = ['6M', '1Y', '3Y', '5Y', 'ALL']
+    if window not in valid_windows:
+        window = '1Y'
+
     try:
-        chart_data = ChartService.get_chart_data(chart_id)
+        chart_data = ChartService.get_chart_data(chart_id, rolling_window=window)
         if chart_data is None:
             raise HTTPException(status_code=404, detail=f'Chart {chart_id} not found')
         return ChartData(**chart_data)

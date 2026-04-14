@@ -428,7 +428,7 @@ class ChartService:
             margin=dict(l=70, r=70, t=80, b=150),
             separators=',',
             xaxis_rangeslider_visible=True,
-            xaxis_rangeslider_thickness=50,
+            xaxis_rangeslider_thickness=0.08,
             xaxis_rangeslider_bgcolor='rgba(20, 23, 31, 0.5)',
         )
 
@@ -439,7 +439,7 @@ class ChartService:
             gridwidth=1,
             zeroline=False,
             rangeslider_visible=True,
-            rangeslider_thickness=50,
+            rangeslider_thickness=0.08,
             rangeslider_bgcolor='rgba(20, 23, 31, 0.5)',
             tickfont=dict(color='#5a6275', size=11),  # 工业减弱文本
             tickangle=-45,

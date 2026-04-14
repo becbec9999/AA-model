@@ -195,7 +195,7 @@ class ChartService:
 
         col_name = df.columns[0]
 
-        if pattern in ['ma', 'mom', 'ma_dev', 'vol', 'rsi']:
+        if pattern in ['ma', 'mom', 'ma_dev', 'vol', 'rsi', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp']:
             # 线图
             return cls._create_line_chart(title, df, col_name, color, rolling_window)
         elif pattern in ['amt', 'pchg_abs']:

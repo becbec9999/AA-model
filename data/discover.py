@@ -33,18 +33,38 @@ def classify_indicator(filename: str) -> Optional[dict]:
         }
 
     # 单标的格式: ticker_pattern(window)?
-    single_pattern = r'(.+?)_(.+?)(?:_(\d+)d)?$'
-    single_match = re.match(single_pattern, name)
-    if single_match:
-        ticker, pattern, window = single_match.groups()
-        return {
-            'pattern': pattern,
-            'ticker': ticker,
-            'ticker_a': None,
-            'ticker_b': None,
-            'window': int(window) if window else None,
-            'is_cross': False
-        }
+    # 注意 ticker 可能包含下划线（如 SH_510300IV.WI），因此使用“从右向左”匹配 pattern/window
+    known_patterns = sorted(INDICATOR_PATTERNS.keys(), key=len, reverse=True)
+    for pattern in known_patterns:
+        suffix = f"_{pattern}"
+        if not name.endswith(suffix) and f"_{pattern}_" not in name:
+            continue
+
+        # 先尝试带窗口：..._{pattern}_{N}d
+        window_match = re.match(rf"^(.+)_{re.escape(pattern)}_(\d+)d$", name)
+        if window_match:
+            ticker, window = window_match.groups()
+            return {
+                'pattern': pattern,
+                'ticker': ticker,
+                'ticker_a': None,
+                'ticker_b': None,
+                'window': int(window),
+                'is_cross': False
+            }
+
+        # 再尝试不带窗口：..._{pattern}
+        plain_match = re.match(rf"^(.+)_{re.escape(pattern)}$", name)
+        if plain_match:
+            ticker = plain_match.group(1)
+            return {
+                'pattern': pattern,
+                'ticker': ticker,
+                'ticker_a': None,
+                'ticker_b': None,
+                'window': None,
+                'is_cross': False
+            }
 
     return None
 

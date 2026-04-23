@@ -12,7 +12,7 @@ from plotly.utils import PlotlyJSONEncoder
 # 导入配置
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import OUTPUT_DIR, get_ticker_color, get_ticker_name, INDICATOR_PATTERNS
+from config import OUTPUT_DIR, DATA_DIR, get_ticker_color, get_ticker_name, INDICATOR_PATTERNS
 from data.discover import discover_indicators, classify_indicator
 from data.loader import load_indicator
 
@@ -22,9 +22,6 @@ class ChartService:
 
     # 默认颜色
     DEFAULT_COLORS = ['#00b8a9', '#f75b5b', '#f7cc35', '#4caf50', '#9c27b0', '#2196f3']
-    # 全局统计叠加层开关（均线 + 标准差带 + 均值线）
-    # 环境变量: SHOW_STATS_OVERLAY=false 可一键关闭全部统计叠加展示
-    SHOW_STATS_OVERLAY = os.environ.get("SHOW_STATS_OVERLAY", "true").lower() != "false"
 
     # 时间窗口映射（交易日数量）
     TIME_WINDOWS = {
@@ -60,6 +57,45 @@ class ChartService:
             first_ticker = ticker.split('_vs_')[0]
             return get_ticker_color(first_ticker) or '#888888'
         return get_ticker_color(ticker)
+
+    @classmethod
+    def _load_raw_close_series(cls, ticker: str) -> Optional[pd.Series]:
+        """从原始量价 CSV 读取 close 序列（用于 MA 图叠加指数走势）"""
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        desktop_fallback_dir = os.path.join(
+            os.path.dirname(project_root), "原始数据", "指数量价数据-日度更新"
+        )
+        candidate_dirs = [DATA_DIR, desktop_fallback_dir]
+        csv_path = None
+        for d in candidate_dirs:
+            p = os.path.join(d, f"{ticker}.csv")
+            if os.path.exists(p):
+                csv_path = p
+                break
+        if not csv_path:
+            return None
+
+        try:
+            try:
+                df = pd.read_csv(csv_path, sep=None, engine='python', encoding='utf-8-sig')
+            except Exception:
+                df = pd.read_csv(csv_path, delim_whitespace=True, encoding='utf-8-sig')
+
+            df.columns = df.columns.str.strip().str.lower()
+            if 'close' not in df.columns:
+                return None
+
+            date_col = 'date' if 'date' in df.columns else ('time' if 'time' in df.columns else None)
+            if date_col is None:
+                return None
+
+            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            close = pd.to_numeric(df['close'], errors='coerce')
+            s = pd.Series(close.values, index=df[date_col]).dropna()
+            s = s[~s.index.duplicated(keep='last')].sort_index()
+            return s
+        except Exception:
+            return None
 
     @classmethod
     def get_indicators(cls) -> Dict:
@@ -126,17 +162,17 @@ class ChartService:
         cls,
         chart_id: str,
         rolling_window: str = '1Y',
-        show_stats_overlay: Optional[bool] = None
+        show_stats_overlay: bool = True,
     ) -> Optional[Dict]:
         # Get chart data with specified rolling window
         # Args:
         #   chart_id: Chart ID (format: pattern_ticker)
         #   rolling_window: Rolling window period ('6M', '1Y', '3Y', '5Y', 'ALL')
+        #   show_stats_overlay: 统计叠加层开关（当前版本保留参数以兼容前端）
         # Returns:
         #   Dictionary containing data and layout
-        # Check cache (key includes rolling window)
-        effective_show_stats = cls.SHOW_STATS_OVERLAY if show_stats_overlay is None else show_stats_overlay
-        cache_key = f"{chart_id}_{rolling_window}_{int(effective_show_stats)}"
+        # Check cache (key includes rolling window and overlay switch)
+        cache_key = f"{chart_id}_{rolling_window}_{int(show_stats_overlay)}"
         if cache_key in cls._chart_cache:
             return cls._chart_cache[cache_key]
 
@@ -175,13 +211,19 @@ class ChartService:
             title = f"{name} {window}日{target_ind['name']}"
 
         # 创建图表（传入滚动窗口参数）
+        raw_close = None
+        # 均线偏离度图叠加同标的指数走势（close）
+        if target_ind['pattern'] == 'ma_dev' and not target_ind.get('is_cross'):
+            raw_close = cls._load_raw_close_series(target_ind['ticker'])
+
         fig = cls._create_chart(
             target_ind['pattern'],
             title,
             df,
             color,
             rolling_window,
-            show_stats_overlay=effective_show_stats
+            show_stats_overlay=show_stats_overlay,
+            overlay_close=raw_close,
         )
 
         if fig is None:
@@ -211,7 +253,8 @@ class ChartService:
         df: pd.DataFrame,
         color: str,
         rolling_window: str = '1Y',
-        show_stats_overlay: Optional[bool] = None
+        show_stats_overlay: bool = True,
+        overlay_close: Optional[pd.Series] = None,
     ) -> Optional[go.Figure]:
         """根据指标类型创建图表"""
         if df.empty:
@@ -219,19 +262,17 @@ class ChartService:
 
         col_name = df.columns[0]
 
-        global_overlay = cls.SHOW_STATS_OVERLAY if show_stats_overlay is None else show_stats_overlay
-
-        if pattern in ['ma', 'ma_turnover', 'mom', 'ma_dev', 'vol', 'rsi', 'rsi_analysis', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp', 'market_amt_ratio']:
+        if pattern in ['ma', 'mom', 'ma_dev', 'vol', 'rsi', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp', 'margin', 'north', 'net_subscription']:
             # 线图
-            pattern_overlay = pattern not in ['high_new', 'low_new']
             return cls._create_line_chart(
                 title,
                 df,
                 col_name,
                 color,
                 rolling_window,
-                show_stats_overlay=(global_overlay and pattern_overlay),
-                y_as_percent=(pattern == 'market_amt_ratio')
+                is_percent=(pattern == 'ma_dev'),
+                show_stats_overlay=show_stats_overlay,
+                overlay_close=overlay_close if pattern == 'ma_dev' else None,
             )
         elif pattern in ['amt', 'pchg_abs']:
             # 柱状图
@@ -239,22 +280,12 @@ class ChartService:
         elif pattern == 'rs':
             # 相对强弱 - 线图
             return cls._create_line_chart(
-                title,
-                df,
-                col_name,
-                color,
-                rolling_window,
-                show_stats_overlay=global_overlay
+                title, df, col_name, color, rolling_window, show_stats_overlay=show_stats_overlay
             )
         elif pattern == 'rt':
             # 相对换手率 - 线图
             return cls._create_line_chart(
-                title,
-                df,
-                col_name,
-                color,
-                rolling_window,
-                show_stats_overlay=global_overlay
+                title, df, col_name, color, rolling_window, show_stats_overlay=show_stats_overlay
             )
 
         return None
@@ -267,8 +298,9 @@ class ChartService:
         col_name: str,
         color: str,
         rolling_window: str = '1Y',
+        is_percent: bool = False,
         show_stats_overlay: bool = True,
-        y_as_percent: bool = False
+        overlay_close: Optional[pd.Series] = None,
     ) -> go.Figure:
         """创建增强线图 - 工业实用主义设计"""
         fig = make_subplots(rows=1, cols=1)
@@ -384,7 +416,7 @@ class ChartService:
                         font=dict(color='#e3e7f1', family='Inter'),
                         bordercolor='#FF9800',
                     ),
-                    hovertemplate='均线: %{y:' + tick_fmt['hoverformat'] + '}<extra></extra>',
+                    hovertemplate='均线: %{y:' + tick_fmt['hoverformat'] + '}' + ('%' if is_percent else '') + '<extra></extra>',
                 )
             )
 
@@ -409,15 +441,32 @@ class ChartService:
                     font=dict(color='#e3e7f1', family='Inter'),
                     bordercolor=color,
                 ),
-                hovertemplate='%{x}<br>%{y:' + tick_fmt['hoverformat'] + '}<extra></extra>',
+                hovertemplate='%{x}<br>%{y:' + tick_fmt['hoverformat'] + '}' + ('%' if is_percent else '') + '<extra></extra>',
             )
         )
+
+        # MA 图可选叠加同标的指数走势（副轴）
+        if overlay_close is not None and not overlay_close.empty:
+            overlay_aligned = overlay_close.reindex(df.index)
+            overlay_aligned = overlay_aligned.dropna()
+            if not overlay_aligned.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=overlay_aligned.index.astype(str).tolist(),
+                        y=overlay_aligned.tolist(),
+                        mode='lines',
+                        name='指数走势',
+                        yaxis='y2',
+                        line=dict(color='rgba(200, 200, 200, 0.85)', width=1.8),
+                        hovertemplate='%{x}<br>指数: %{y:.2f}<extra></extra>',
+                    )
+                )
 
         # 2. 添加均值线（工业感虚线）
         if show_stats_overlay and len(y_vals) > 0:
             # 根据数据范围确定标注格式
             fmt = cls._get_tick_format(y_vals)
-            mean_text = f"均值: {mean_val:{fmt['tickformat']}}"
+            mean_text = f"均值: {mean_val:{fmt['tickformat']}}{'%' if is_percent else ''}"
 
             fig.add_hline(
                 y=mean_val,
@@ -484,7 +533,7 @@ class ChartService:
                 size=12,
             ),
             margin=dict(l=70, r=70, t=80, b=150),
-            separators='.,',
+            separators=',',
             xaxis_rangeslider_visible=True,
             xaxis_rangeslider_thickness=0.08,
             xaxis_rangeslider_bgcolor='rgba(20, 23, 31, 0.5)',
@@ -528,8 +577,26 @@ class ChartService:
             separatethousands=tick_fmt['separatethousands'],
             tickformat=tick_fmt['tickformat'],
             hoverformat=tick_fmt['hoverformat'],
-            ticksuffix='%' if y_as_percent else '',
+            ticksuffix='%' if is_percent else '',
         )
+
+        # 指数副轴（仅在叠加序列存在时显示）
+        if overlay_close is not None and not overlay_close.empty:
+            fig.update_layout(
+                yaxis2=dict(
+                    title=dict(text='指数', font=dict(color='#9aa3b2', size=12)),
+                    overlaying='y',
+                    side='left',
+                    showgrid=False,
+                    tickfont=dict(color='#9aa3b2', size=11),
+                    separatethousands=True,
+                    tickformat=',.2f',
+                    showline=True,
+                    linecolor='#3a4052',
+                    linewidth=1,
+                    mirror=True,
+                )
+            )
 
         return fig
 

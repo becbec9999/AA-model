@@ -12,6 +12,7 @@ const TICKER_NAMES = {
     'SH_510300IV.WI': '300ETF隐含波动率',
     'SH_510500IV.WI': '500ETF隐含波动率',
     'CFE_000852IV.WI': '中证1000股指隐含波动率',
+    'MARKET': '全市场',
 };
 
 // 标的颜色映射
@@ -35,9 +36,9 @@ const INDICATOR_CATEGORIES = {
         description: '量价类技术指标',
         subcategories: {
             '趋势跟踪': { patterns: ['ma', 'ma_dev', 'high_new', 'low_new'], description: '均线、偏离度及新高新低' },
-            '动量反转': { patterns: ['mom', 'rsi', 'rsi_analysis', 'return_acf1'], description: '动量、RSI及趋势连续度' },
+            '动量反转': { patterns: ['mom', 'rsi', 'return_acf1', 'erp'], description: '动量、RSI、趋势连续度及风险溢价' },
             '波动风险': { patterns: ['vol', 'iv'], description: '年化波动率及隐含波动率' },
-            '市场情绪': { patterns: ['amt', 'ma_turnover', 'pchg_abs', 'market_amt_ratio'], description: '成交额及换手率' },
+            '市场情绪': { patterns: ['amt', 'ma_turnover', 'pchg_abs', 'market_amt_ratio', 'margin', 'north', 'net_subscription'], description: '成交额、换手率及资金情绪指标' },
             '风格切换': { patterns: ['rs', 'rt'], description: '相对强弱比' }
         }
     },
@@ -259,6 +260,14 @@ function getIndicatorDisplayName(ind) {
             return `${tickerName} ${window}日波动率`;
         case 'iv':
             return `${tickerName} 隐含波动率`;
+        case 'erp':
+            return `${tickerName} 风险溢价`;
+        case 'margin':
+            return `${tickerName} 两融余额`;
+        case 'north':
+            return `${tickerName} 北向资金`;
+        case 'net_subscription':
+            return `${tickerName} 净申购`;
         case 'amt':
             return `${tickerName} 成交额`;
         case 'pchg_abs':
@@ -275,8 +284,6 @@ function getIndicatorDisplayName(ind) {
             return `${tickerName} 相对换手率`;
         case 'rsi':
             return `${tickerName} RSI`;
-        case 'rsi_analysis':
-            return `${tickerName} RSI分析`;
         case 'ma_turnover':
             return `${tickerName} ${window}日换手率`;
         case 'market_amt_ratio':

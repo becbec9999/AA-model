@@ -8,7 +8,7 @@
 import pandas as pd
 import numpy as np
 import os
-from typing import List
+from typing import List, Optional
 
 # ==========================================
 # 模块一：统一数据引擎 (DataLoader)
@@ -36,45 +36,58 @@ class DataLoader:
             self.source_map = {
                 "量价": r"E:\数据库\ETF跟踪指数量价数据-日度更新\ETF跟踪指数量价数据-日度更新",
                 "宏观": r"原始数据\宏观经济数据",
-                "估值": r"原始数据\指数估值数据"
+                "估值": r"原始数据\宏观与基本面数据-日度更新"
             }
         else:  # Mac / Linux
             self.source_map = {
                 "量价": r"原始数据/指数量价数据-日度更新",
                 "宏观": r"原始数据/宏观经济数据",
-                "估值": r"原始数据/指数估值数据"
+                "估值": r"原始数据/宏观与基本面数据-日度更新"
             }
         
 
 
-    def fetch(self, ticker: str, category: str = "量价") -> pd.DataFrame:
+    def fetch(self, ticker: str, category: str = "量价", filename: Optional[str] = None) -> pd.DataFrame:
         """
         核心数据获取接口
         :param ticker: 资产代码，例如 "000300.SH"
         :param category: 数据类别，默认 "量价"
+        :param filename: 可选文件名（含后缀），默认使用 "{ticker}.csv"
         :return: 标准化处理后的 DataFrame (日期为Index，列名为小写)
         """
         sub_dir = self.source_map.get(category)
         if not sub_dir:
             raise ValueError(f"引擎错误：未知的数据类别 '{category}'，请在 DataLoader 中配置。")
             
-        file_path = os.path.join(self.root_dir, sub_dir, f"{ticker}.csv")
+        target_filename = filename or f"{ticker}.csv"
+        file_path = os.path.join(self.root_dir, sub_dir, target_filename)
         
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"引擎错误：找不到数据文件 {file_path}")
 
-        # 1. 鲁棒性读取（兼容逗号、制表符、BOM隐藏字符等各类脏格式）
-        try:
-            df = pd.read_csv(file_path, sep=None, engine='python', encoding='utf-8-sig')
-        except Exception:
-            df = pd.read_csv(file_path, delim_whitespace=True, encoding='utf-8-sig')
+        # 1. 鲁棒性读取（兼容 CSV / Excel 与常见脏格式）
+        file_path_lower = file_path.lower()
+        if file_path_lower.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(file_path)
+        else:
+            try:
+                df = pd.read_csv(file_path, sep=None, engine='python', encoding='utf-8-sig')
+            except Exception:
+                df = pd.read_csv(file_path, delim_whitespace=True, encoding='utf-8-sig')
 
         # 2. 字段清洗：列名统一转小写并去除空格
         df.columns = df.columns.str.strip().str.lower()
 
         # 3. 时间序列标准化：强制转换为日期索引并按升序排列
-        # 兼容 date 或 time 作为日期列名
-        date_col = 'date' if 'date' in df.columns else 'time'
+        # 兼容 date / time / datetime
+        if 'date' in df.columns:
+            date_col = 'date'
+        elif 'time' in df.columns:
+            date_col = 'time'
+        elif 'datetime' in df.columns:
+            date_col = 'datetime'
+        else:
+            raise ValueError(f"引擎错误：{target_filename} 缺失 date/time/datetime 列。")
         df[date_col] = pd.to_datetime(df[date_col])
         df.set_index(date_col, inplace=True)
         df.sort_index(ascending=True, inplace=True)
@@ -119,19 +132,18 @@ class VolumePriceIndicators:
         ind_df = df[['amt']].rename(columns={'amt': f'{ticker}_成交额'})
         self._save_result(ind_df, f"{ticker}_amt.csv")
     
-    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "881001.WI"):
+    def calc_and_save_amt_ratio(self, ticker: str, market_ticker: str = "930709.CSI"):
         """
-        计算成交额占万得全A（或指定市场指数）的百分比。
-        公式：(ticker_amt / market_amt) * 100
+        计算成交额占全市场的对数占比 (Log Amount Ratio)
+        公式：log(ticker_amt / market_amt)
         """
         df = self.loader.fetch(ticker, category="量价")
         df_market = self.loader.fetch(market_ticker, category="量价")
-
-        # 计算成交额占比百分数；按时间索引自动对齐，分母为 0 或无效值统一转为 NaN
+        
+        # 使用 log 避免成交额绝对值差距过大，反映相对活跃度的变动
         with np.errstate(divide='ignore', invalid='ignore'):
-            ratio = (df['amt'].div(df_market['amt']) * 100).to_frame(name=f'{ticker}_成交额占比(%)')
-            ratio = ratio.replace([np.inf, -np.inf], np.nan)
-
+            ratio = np.log(df['amt'] / df_market['amt']).to_frame(name=f'{ticker}_成交额对数占比')
+            
         self._save_result(ratio, f"{ticker}_vs_market_amt_ratio.csv")
 
     def calc_relative_strength(self, ticker_a: str, ticker_b: str):
@@ -289,6 +301,140 @@ class VolumePriceIndicators:
         iv = pd.to_numeric(df["close"], errors="coerce").to_frame(name=f"{iv_ticker}_隐含波动率")
         self._save_result(iv, f"{iv_ticker}_iv.csv")
 
+    def calc_and_save_margin(self):
+        """
+        两融余额（市场级）。
+        数据源：M0075992_margin_balance.csv
+        """
+        try:
+            df = self.loader.fetch(
+                ticker="MARKET",
+                category="估值",
+                filename="M0075992_margin_balance.csv",
+            )
+        except FileNotFoundError:
+            print("  ⚠️ 警告: 未找到两融余额数据文件（M0075992_margin_balance），跳过。")
+            return
+
+        if "close" in df.columns:
+            series = pd.to_numeric(df["close"], errors="coerce")
+        else:
+            # 兜底：取第一个数值列
+            numeric_df = df.apply(pd.to_numeric, errors="coerce")
+            series = numeric_df.iloc[:, 0] if not numeric_df.empty else pd.Series(dtype=float)
+
+        result = series.dropna().to_frame(name="MARKET_两融余额")
+        self._save_result(result, "MARKET_margin.csv")
+
+    def calc_and_save_north(self):
+        """
+        北向资金总成交额（市场级）。
+        数据源：northbound_total_total_amount_cny_100m.csv
+        """
+        try:
+            df = self.loader.fetch(
+                ticker="MARKET",
+                category="估值",
+                filename="northbound_total_total_amount_cny_100m.csv",
+            )
+        except FileNotFoundError:
+            print("  ⚠️ 警告: 未找到北向资金数据文件（northbound_total_total_amount_cny_100m），跳过。")
+            return
+
+        if "close" in df.columns:
+            series = pd.to_numeric(df["close"], errors="coerce")
+        else:
+            numeric_df = df.apply(pd.to_numeric, errors="coerce")
+            series = numeric_df.iloc[:, 0] if not numeric_df.empty else pd.Series(dtype=float)
+
+        result = series.dropna().to_frame(name="MARKET_北向资金")
+        self._save_result(result, "MARKET_north.csv")
+
+    def calc_and_save_net_subscription(self, ticker: str):
+        """
+        净申购（按标的）。
+        数据源：{ticker}_mfd_netbuyvol.csv
+        """
+        try:
+            df = self.loader.fetch(
+                ticker=ticker,
+                category="估值",
+                filename=f"{ticker}_mfd_netbuyvol.csv",
+            )
+        except FileNotFoundError:
+            print(f"  ⚠️ 警告: 未找到 {ticker} 的净申购数据文件（mfd_netbuy_vol），跳过。")
+            return
+
+        if "close" in df.columns:
+            series = pd.to_numeric(df["close"], errors="coerce")
+        else:
+            numeric_df = df.apply(pd.to_numeric, errors="coerce")
+            series = numeric_df.iloc[:, 0] if not numeric_df.empty else pd.Series(dtype=float)
+
+        result = series.dropna().to_frame(name=f"{ticker}_净申购")
+        self._save_result(result, f"{ticker}_net_subscription.csv")
+
+    def calc_and_save_erp(
+        self,
+        ticker: str,
+        pe_field: str = "pe_ttm",
+        pe_category: str = "估值",
+        bond_ticker: str = "TB10Y.WI",
+        bond_category: str = "量价",
+    ):
+        """
+        股债风险溢价（ERP）:
+        ERP = 1 / PE - 10年国债收益率
+
+        口径统一：
+        - PE 先转换为盈利收益率百分比点：100 / PE
+        - 10Y 使用百分比点口径（例如 1.76）
+        - ERP = 100 / PE - 10Y
+        """
+        pe_filename = f"{ticker}_{pe_field}.csv"
+        try:
+            pe_df = self.loader.fetch(ticker, category=pe_category, filename=pe_filename)
+        except FileNotFoundError:
+            print(f"  ⚠️ 警告: 未找到 {ticker} 的 PE 文件（{pe_filename}），类别: {pe_category}，跳过 ERP 计算。")
+            return
+
+        # 10年国债收益率默认从量价目录读取（TB10Y.WI）
+        bond_df = self.loader.fetch(bond_ticker, category=bond_category)
+        if "close" not in bond_df.columns:
+            print(f"  ⚠️ 警告: {bond_ticker} 缺失 close 列，无法计算 ERP。")
+            return
+
+        pe_col = pe_field if pe_field in pe_df.columns else ("close" if "close" in pe_df.columns else None)
+        if pe_col is None:
+            print(f"  ⚠️ 警告: {pe_filename} 缺失 {pe_field}/close 列，跳过 ERP 计算。")
+            return
+
+        pe_series = pd.to_numeric(pe_df[pe_col], errors="coerce").dropna()
+        if pe_series.empty:
+            print(f"  ⚠️ 警告: {ticker} 的 PE 序列为空，跳过 ERP 计算。")
+            return
+
+        y10_series = pd.to_numeric(bond_df["close"], errors="coerce").dropna()
+
+        merged_df = pd.concat(
+            [
+                pe_series.rename("pe_ttm"),
+                y10_series.rename("y10"),
+            ],
+            axis=1,
+            join="inner",
+        ).dropna()
+
+        if merged_df.empty:
+            print(f"  ⚠️ 警告: {ticker} PE 与 {bond_ticker} 日期无重叠，跳过 ERP 计算。")
+            return
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            erp = (100.0 / merged_df["pe_ttm"]) - merged_df["y10"]
+
+        result = erp.to_frame(name=f"{ticker}_股债风险溢价")
+        self._save_result(result, f"{ticker}_erp.csv")
+
     def calc_and_save_rsi_percentile(self, ticker: str, rsi_win: int = 14, p_win: int = 120):
         """计算 RSI 及 30%/70% 分位值"""
         df = self.loader.fetch(ticker, category="量价")
@@ -316,7 +462,7 @@ class VolumePriceIndicators:
             f'{ticker}_RSI_30P': rsi_30p,
             f'{ticker}_RSI_70P': rsi_70p
         })
-        self._save_result(result, f"{ticker}_rsi_analysis.csv")
+        self._save_result(result, f"{ticker}_rsi.csv")
 
     def calc_and_save_volatility(self, ticker: str, windows: List[int] = [20, 60, 120]):
         """
@@ -386,11 +532,20 @@ if __name__ == "__main__":
         vp_module.calc_and_save_high_new(ticker)
         vp_module.calc_and_save_low_new(ticker)
         vp_module.calc_and_save_return_acf1(ticker, windows=[20, 60, 120])
+        vp_module.calc_and_save_erp(ticker)
 
     print("\n正在处理隐含波动率（IV）指标...")
     for iv_ticker in IV_ASSETS:
         print(f"\n正在处理IV指数: [ {iv_ticker} ]")
         vp_module.calc_and_save_implied_vol(iv_ticker)
+
+    print("\n正在处理市场级估值指标...")
+    vp_module.calc_and_save_margin()
+    vp_module.calc_and_save_north()
+
+    print("\n正在处理净申购指标...")
+    for ticker in TARGET_ASSETS:
+        vp_module.calc_and_save_net_subscription(ticker)
         
     print("\n正在处理跨品种指标...")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="000905.SH")

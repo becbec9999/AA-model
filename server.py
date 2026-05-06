@@ -4,7 +4,7 @@
 大类资产配置指标监控面板 - FastAPI 服务
 =====================================
 启动命令: python server.py
-访问地址: http://localhost:8000
+访问地址: http://localhost:8001
 """
 
 import os
@@ -29,7 +29,7 @@ app = FastAPI(
 
 # 添加 CORS 中间件
 # 生产环境建议设置具体的 origins，不使用 *
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:8001,http://127.0.0.1:8001").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -62,32 +62,61 @@ async def health_check():
 
 
 if __name__ == "__main__":
+    import platform
     import uvicorn
     import subprocess
     import time
 
+    SERVER_PORT = 8001
     # 生产环境设置 RELOAD=false 可禁用自动重载，提升性能
     reload_enabled = os.environ.get("RELOAD", "true").lower() != "false"
 
     def _kill_port(port: int):
-        """Windows 下强制释放占用端口的进程"""
+        """启动前尝试释放占用端口的进程（Windows / macOS / Linux）"""
+        if platform.system() == "Windows":
+            try:
+                result = subprocess.run(
+                    ['netstat', '-ano'], capture_output=True, text=True
+                )
+                for line in result.stdout.splitlines():
+                    if f':{port}' in line and 'LISTENING' in line:
+                        parts = line.split()
+                        for p in parts:
+                            if p.isdigit() and int(p) > 0:
+                                pid = int(p)
+                                try:
+                                    subprocess.run(
+                                        ['taskkill', '/F', '/PID', str(pid)],
+                                        capture_output=True,
+                                        timeout=3,
+                                    )
+                                    print(f"  [清理] 已终止占用端口 {port} 的进程 PID={pid}")
+                                except Exception:
+                                    pass
+                                break
+            except Exception:
+                pass
+            return
+        # macOS / Linux: lsof
         try:
-            result = subprocess.run(
-                ['netstat', '-ano'], capture_output=True, text=True
+            r = subprocess.run(
+                ['lsof', '-t', f'-iTCP:{port}', '-sTCP:LISTEN'],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
-            for line in result.stdout.splitlines():
-                if f':{port}' in line and 'LISTENING' in line:
-                    parts = line.split()
-                    for p in parts:
-                        if p.isdigit() and int(p) > 0:
-                            pid = int(p)
-                            try:
-                                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
-                                             capture_output=True, timeout=3)
-                                print(f"  [清理] 已终止占用端口 {port} 的进程 PID={pid}")
-                            except Exception:
-                                pass
-                            break
+            for pid_str in r.stdout.strip().split():
+                if not pid_str.isdigit():
+                    continue
+                try:
+                    subprocess.run(
+                        ['kill', '-9', pid_str],
+                        capture_output=True,
+                        timeout=3,
+                    )
+                    print(f"  [清理] 已终止占用端口 {port} 的进程 PID={pid_str}")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -96,11 +125,11 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # 启动前尝试释放端口
-    _kill_port(8000)
+    _kill_port(SERVER_PORT)
     time.sleep(0.5)
 
     print("\n启动服务...")
-    print("访问地址: http://localhost:8000")
+    print(f"访问地址: http://localhost:{SERVER_PORT}")
     print(f"自动重载: {'启用' if reload_enabled else '禁用'}")
     print("\n按 Ctrl+C 停止服务")
     print("=" * 60)
@@ -108,7 +137,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
-        port=8000,
+        port=SERVER_PORT,
         reload=reload_enabled,
         log_level="info"
     )

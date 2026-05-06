@@ -172,7 +172,8 @@ class ChartService:
         # Returns:
         #   Dictionary containing data and layout
         # Check cache (key includes rolling window and overlay switch)
-        cache_key = f"{chart_id}_{rolling_window}_{int(show_stats_overlay)}"
+        # 前缀轮换可令服务器进程内图表缓存丢弃旧 layout（如 separators 语义修正）
+        cache_key = f"sep_dot_{chart_id}_{rolling_window}_{int(show_stats_overlay)}"
         if cache_key in cls._chart_cache:
             return cls._chart_cache[cache_key]
 
@@ -262,7 +263,30 @@ class ChartService:
 
         col_name = df.columns[0]
 
-        if pattern in ['ma', 'mom', 'ma_dev', 'vol', 'rsi', 'high_new', 'low_new', 'return_acf1', 'iv', 'erp', 'margin', 'north', 'net_subscription']:
+        if pattern in [
+            'ma',
+            'mom',
+            'ma_dev',
+            'vol',
+            'rsi',
+            'high_new',
+            'low_new',
+            'return_acf1',
+            'iv',
+            'erp',
+            'margin',
+            'north',
+            'net_subscription',
+            'annualized_basis',
+            'pe_ttm',
+            'pb_lf',
+            'ps_ttm',
+            'val_pcf_ocfttmwgt',
+            'val_dividendyield3',
+            'roe_ttm2',
+            'yoy_or',
+            'debttoassets',
+        ]:
             # 线图
             return cls._create_line_chart(
                 title,
@@ -270,7 +294,7 @@ class ChartService:
                 col_name,
                 color,
                 rolling_window,
-                is_percent=(pattern == 'ma_dev'),
+                is_percent=(pattern in ['ma_dev', 'annualized_basis']),
                 show_stats_overlay=show_stats_overlay,
                 overlay_close=overlay_close if pattern == 'ma_dev' else None,
             )
@@ -433,7 +457,6 @@ class ChartService:
                     shape='spline',
                     smoothing=0.8,
                 ),
-                # 渐变填充（从颜色到透明）- 使用半透明单色
                 fill='tozeroy',
                 fillcolor=cls._hex_to_rgba(color, 0.25),
                 hoverlabel=dict(
@@ -533,7 +556,8 @@ class ChartService:
                 size=12,
             ),
             margin=dict(l=70, r=70, t=80, b=150),
-            separators=',',
+            # Plotly：两字符依次为「小数点 + 千分位」。',.' 会把小数显示成逗号（欧式 1,83）
+            separators='.,',
             xaxis_rangeslider_visible=True,
             xaxis_rangeslider_thickness=0.08,
             xaxis_rangeslider_bgcolor='rgba(20, 23, 31, 0.5)',
@@ -682,6 +706,8 @@ class ChartService:
             tickformat=tick_fmt['tickformat'],
             hoverformat=tick_fmt['hoverformat'],
         )
+
+        fig.update_layout(separators='.,')
 
         return fig
 

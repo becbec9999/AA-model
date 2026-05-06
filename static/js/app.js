@@ -12,6 +12,13 @@ const TICKER_NAMES = {
     'SH_510300IV.WI': '300ETF隐含波动率',
     'SH_510500IV.WI': '500ETF隐含波动率',
     'CFE_000852IV.WI': '中证1000股指隐含波动率',
+    'IF00.CFE': '沪深300股指期货主连',
+    'IC00.CFE': '中证500股指期货主连',
+    'IM00.CFE': '中证1000股指期货主连',
+    'IF': 'IF股指期货',
+    'IH': 'IH股指期货',
+    'IC': 'IC股指期货',
+    'IM': 'IM股指期货',
     'MARKET': '全市场',
 };
 
@@ -27,6 +34,10 @@ const TICKER_COLORS = {
     'SH_510300IV.WI': '#ffb74d',
     'SH_510500IV.WI': '#ff7043',
     'CFE_000852IV.WI': '#ab47bc',
+    'IF': '#2196f3',
+    'IH': '#ffb300',
+    'IC': '#ff5722',
+    'IM': '#7e57c2',
 };
 
 // 指标分类配置（按数据类别 + 分析目的）
@@ -38,8 +49,20 @@ const INDICATOR_CATEGORIES = {
             '趋势跟踪': { patterns: ['ma', 'ma_dev', 'high_new', 'low_new'], description: '均线、偏离度及新高新低' },
             '动量反转': { patterns: ['mom', 'rsi', 'return_acf1', 'erp'], description: '动量、RSI、趋势连续度及风险溢价' },
             '波动风险': { patterns: ['vol', 'iv'], description: '年化波动率及隐含波动率' },
-            '市场情绪': { patterns: ['amt', 'ma_turnover', 'pchg_abs', 'market_amt_ratio', 'margin', 'north', 'net_subscription'], description: '成交额、换手率及资金情绪指标' },
+            '市场情绪': { patterns: ['amt', 'ma_turnover', 'pchg_abs', 'market_amt_ratio', 'margin', 'north', 'net_subscription', 'annualized_basis'], description: '成交额、换手率、资金及年化基差指标' },
             '风格切换': { patterns: ['rs', 'rt'], description: '相对强弱比' }
+        }
+    },
+    '估值指标类': {
+        description: '指数估值与股息',
+        subcategories: {
+            '估值水平': {
+                patterns: [
+                    'pe_ttm', 'pb_lf', 'ps_ttm', 'val_pcf_ocfttmwgt', 'val_dividendyield3',
+                    'roe_ttm2', 'yoy_or', 'debttoassets',
+                ],
+                description: '估值、股息、ROE、营收同比、资产负债率等'
+            }
         }
     },
     '宏观类': {
@@ -232,6 +255,18 @@ function getTickerName(ticker) {
         const [a, b] = ticker.split('_vs_');
         return `${TICKER_NAMES[a] || a} vs ${TICKER_NAMES[b] || b}`;
     }
+    // 期货分月合约（如 IM03.CFE）自动名称
+    const futureMatch = ticker.match(/^(IF|IH|IC|IM)(\d{2})\.CFE$/);
+    if (futureMatch) {
+        const monthMap = {
+            '00': '当月',
+            '01': '近月',
+            '02': '下季',
+            '03': '隔季',
+        };
+        const label = monthMap[futureMatch[2]] || futureMatch[2];
+        return `${futureMatch[1]}${label}合约`;
+    }
     return TICKER_NAMES[ticker] || ticker;
 }
 
@@ -240,6 +275,10 @@ function getTickerColor(ticker) {
     if (ticker.includes('_vs_')) {
         const a = ticker.split('_vs_')[0];
         return TICKER_COLORS[a] || '#888888';
+    }
+    const futureMatch = ticker.match(/^(IF|IH|IC|IM)\d{2}\.CFE$/);
+    if (futureMatch) {
+        return TICKER_COLORS[futureMatch[1]] || '#888888';
     }
     return TICKER_COLORS[ticker] || '#888888';
 }
@@ -268,6 +307,8 @@ function getIndicatorDisplayName(ind) {
             return `${tickerName} 北向资金`;
         case 'net_subscription':
             return `${tickerName} 净申购`;
+        case 'annualized_basis':
+            return `${tickerName} 年化基差`;
         case 'amt':
             return `${tickerName} 成交额`;
         case 'pchg_abs':
@@ -307,6 +348,21 @@ function getIndicatorCategory(ind) {
     return '其他';
 }
 
+/** 同一子类内排序：标的代码 ticker → pattern → window → id（MARKET 等同 ticker 时再分子类） */
+function compareIndicatorsByTicker(a, b) {
+    const t = String(a.ticker || '').localeCompare(String(b.ticker || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+    });
+    if (t !== 0) return t;
+    const p = String(a.pattern || '').localeCompare(String(b.pattern || ''));
+    if (p !== 0) return p;
+    const wa = a.window != null ? Number(a.window) : -999999;
+    const wb = b.window != null ? Number(b.window) : -999999;
+    if (wa !== wb) return wa - wb;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
 // 渲染指标导航（按分析目的分类）
 function renderNavigator(indicators) {
     const navContainer = document.querySelector('.sidebar-section:last-child');
@@ -332,6 +388,10 @@ function renderNavigator(indicators) {
             }
         }
     }
+
+    Object.keys(categorized).forEach(function(subcat) {
+        categorized[subcat].sort(compareIndicatorsByTicker);
+    });
 
     // 生成HTML - 两级可折叠结构
     for (const [dataCat, dataConfig] of Object.entries(INDICATOR_CATEGORIES)) {
@@ -737,21 +797,27 @@ function renderSearchResults(filteredIndicators, query) {
             </div>
         `;
     } else {
-        // 扁平化列表显示所有结果
-        html += `<div class="search-results-list">`;
-
+        const flat = [];
         for (const [catName, types] of Object.entries(filteredIndicators)) {
             for (const [typeName, indList] of Object.entries(types)) {
                 for (const ind of indList) {
-                    html += `
-                        <div class="nav-item search-result-item" data-chart="${ind.id}">
-                            <span class="nav-dot" style="background: ${getTickerColor(ind.ticker)}"></span>
-                            <span class="nav-text">${getIndicatorDisplayName(ind)}</span>
-                            <span class="search-result-category">${getIndicatorCategory(ind)}</span>
-                        </div>
-                    `;
+                    flat.push(ind);
                 }
             }
+        }
+        flat.sort(compareIndicatorsByTicker);
+
+        // 扁平化列表显示所有结果
+        html += `<div class="search-results-list">`;
+
+        for (const ind of flat) {
+            html += `
+                <div class="nav-item search-result-item" data-chart="${ind.id}">
+                    <span class="nav-dot" style="background: ${getTickerColor(ind.ticker)}"></span>
+                    <span class="nav-text">${getIndicatorDisplayName(ind)}</span>
+                    <span class="search-result-category">${getIndicatorCategory(ind)}</span>
+                </div>
+            `;
         }
 
         html += `</div>`;
@@ -783,7 +849,7 @@ function applyCustomDateRangeHandler() {
     const endDate = endInput.value;
 
     if (startDate && endDate) {
-        document.querySelectorAll('.range-btn[data-range]').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.range-preset[data-range]').forEach(b => b.classList.remove('active'));
         applyTimeRange(startDate, endDate);
     }
 }
@@ -869,7 +935,7 @@ function loadChart(chartId) {
                 console.log(`[loadChart] 缓存有效，年龄: ${Math.round(age/1000)}秒`);
             } else {
                 console.log(`[loadChart] 缓存已过期，年龄: ${Math.round(age/1000)}秒`);
-                delete chartCache[chartId]; // 清除过期缓存
+                delete chartCache[cacheKey]; // 清除过期缓存（键与存入时一致）
             }
         } else {
             // 旧格式：直接使用，视为永久有效（向后兼容）
@@ -913,6 +979,7 @@ function renderChartWithData(container, titleEl, legendEl, chartConfig, chartId)
 
     // 更新标题
     titleEl.textContent = chartConfig.title;
+    titleEl.title = '';
 
     console.log('[renderChartWithData] 数据格式检查:', {
         hasData: !!chartConfig.data,

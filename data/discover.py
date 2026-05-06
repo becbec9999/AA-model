@@ -113,7 +113,7 @@ def discover_indicators(output_dir: str) -> dict:
         indicator_type = config['type']
 
         if category not in result:
-            result[category] = {'趋势': [], '动量': [], '情绪': []}
+            result[category] = {}
 
         indicator_info = {
             'filename': filename,
@@ -127,7 +127,8 @@ def discover_indicators(output_dir: str) -> dict:
             'is_cross': info.get('is_cross', False),
         }
 
-        if indicator_type in result[category]:
-            result[category][indicator_type].append(indicator_info)
+        if indicator_type not in result[category]:
+            result[category][indicator_type] = []
+        result[category][indicator_type].append(indicator_info)
 
     return result

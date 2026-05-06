@@ -2,7 +2,7 @@
 量化大类资产指标研究框架 V1.0
 --------------------------------------------------
 设计理念：数据与计算解耦，指标单文件存储，便于多人协同与多因子回测。
-当前模块：数据引擎底座 & 量价类指标集
+当前模块：数据引擎底座 & 量价类指标集 & 估值类指标集
 """
 
 import pandas as pd
@@ -178,6 +178,44 @@ class VolumePriceIndicators:
             ratio = np.log(df_a['free_turn'] / df_b['free_turn']).to_frame(name=f'{ticker_a}_对_{ticker_b}_对数相对换手率')
 
         self._save_result(ratio, f"{ticker_a}_vs_{ticker_b}_rt.csv")
+
+    def calc_and_save_annualized_basis(self):
+        """
+        从“估值”源目录直接读取 annualized basis 原始序列并落盘。
+        不进行任何基差计算，仅做字段抽取与格式统一。
+        输出：IF00.CFE_annualized_basis.pkl ... IM03.CFE_annualized_basis.pkl
+        """
+        future_prefixes = ["IF", "IH", "IC", "IM"]
+        contract_suffixes = ["00", "01", "02", "03"]
+        candidate_cols = ["annualized basis", "annualized_basis", "close"]
+
+        for future_prefix in future_prefixes:
+            for suffix in contract_suffixes:
+                future_ticker = f"{future_prefix}{suffix}.CFE"
+                src_filename = f"{future_ticker}_annualized_basis_if.csv"
+
+                try:
+                    df = self.loader.fetch(
+                        ticker=future_ticker,
+                        category="估值",
+                        filename=src_filename,
+                    )
+                except FileNotFoundError:
+                    print(f"  ⚠️ 警告: 未找到 {src_filename}，跳过。")
+                    continue
+
+                value_col = next((c for c in candidate_cols if c in df.columns), None)
+                if value_col is None:
+                    numeric_df = df.apply(pd.to_numeric, errors="coerce")
+                    if numeric_df.empty:
+                        print(f"  ⚠️ 警告: {src_filename} 无可用数值列，跳过。")
+                        continue
+                    value_series = numeric_df.iloc[:, 0]
+                else:
+                    value_series = pd.to_numeric(df[value_col], errors="coerce")
+
+                result_df = value_series.to_frame(name=f"{future_ticker}_年化基差")
+                self._save_result(result_df, f"{future_ticker}_annualized_basis.csv")
         
     # ---------------- 动量与趋势指标区 ----------------
     
@@ -485,6 +523,96 @@ class VolumePriceIndicators:
             
             # 4. 统一落盘
             self._save_result(vol, f"{ticker}_vol_{n}d.csv")
+
+
+# ==========================================
+# 模块三：估值类指标计算库
+# 职责：从「估值」数据源读取 Wind 风格估值序列，统一清洗后落盘 PKL
+# 原始文件约定：{ROOT}/宏观与基本面数据-日度更新/{ticker}_{field}.csv
+# ==========================================
+class ValueIndicators:
+    def __init__(self, data_loader: DataLoader, output_dir: str):
+        self.loader = data_loader
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def _save_result(self, result_df: pd.DataFrame, file_name: str):
+        result_df = result_df.dropna()
+        pkl_name = file_name.replace(".csv", ".pkl")
+        save_path = os.path.join(self.output_dir, pkl_name)
+        result_df.to_pickle(save_path)
+        print(f"  成功生成: {pkl_name}")
+
+    def _calc_and_save_valuation_field(
+        self,
+        ticker: str,
+        field: str,
+        result_column: str,
+        category: str = "估值",
+    ):
+        src_name = f"{ticker}_{field}.csv"
+        try:
+            df = self.loader.fetch(ticker, category=category, filename=src_name)
+        except FileNotFoundError:
+            print(f"  ⚠️ 警告: 未找到 {src_name}（估值数据源），跳过 {field}。")
+            return
+
+        if field in df.columns:
+            value_col = field
+        elif "close" in df.columns:
+            value_col = "close"
+        else:
+            numeric_df = df.apply(pd.to_numeric, errors="coerce")
+            if numeric_df.empty or numeric_df.shape[1] == 0:
+                print(f"  ⚠️ 警告: {src_name} 无可用数值列，跳过。")
+                return
+            value_series = numeric_df.iloc[:, 0]
+            result_df = value_series.to_frame(name=result_column)
+            self._save_result(result_df, f"{ticker}_{field}.csv")
+            return
+
+        series = pd.to_numeric(df[value_col], errors="coerce").to_frame(name=result_column)
+        self._save_result(series, f"{ticker}_{field}.csv")
+
+    def calc_and_save_pe_ttm(self, ticker: str):
+        """市盈率 TTM（数据来源：{ticker}_pe_ttm.csv）"""
+        self._calc_and_save_valuation_field(ticker, "pe_ttm", f"{ticker}_市盈率TTM")
+
+    def calc_and_save_pb_lf(self, ticker: str):
+        """市净率 LF（数据来源：{ticker}_pb_lf.csv）"""
+        self._calc_and_save_valuation_field(ticker, "pb_lf", f"{ticker}_市净率LF")
+
+    def calc_and_save_ps_ttm(self, ticker: str):
+        """市销率 TTM（数据来源：{ticker}_ps_ttm.csv）"""
+        self._calc_and_save_valuation_field(ticker, "ps_ttm", f"{ticker}_市销率TTM")
+
+    def calc_and_save_val_pcf_ocfttmwgt(self, ticker: str):
+        """市现率 OCF TTM 加权（数据来源：{ticker}_val_pcf_ocfttmwgt.csv）"""
+        self._calc_and_save_valuation_field(
+            ticker, "val_pcf_ocfttmwgt", f"{ticker}_市现率OCF_TTM加权"
+        )
+
+    def calc_and_save_val_dividendyield3(self, ticker: str):
+        """三年股息率（数据来源：{ticker}_val_dividendyield3.csv）"""
+        self._calc_and_save_valuation_field(
+            ticker, "val_dividendyield3", f"{ticker}_股息率3年"
+        )
+
+    def calc_and_save_roe_ttm2(self, ticker: str):
+        """ROE TTM2（数据来源：{ticker}_roe_ttm2.csv）"""
+        self._calc_and_save_valuation_field(ticker, "roe_ttm2", f"{ticker}_ROE_TTM2")
+
+    def calc_and_save_yoy_or(self, ticker: str):
+        """营收同比增速等（数据来源：{ticker}_yoy_or.csv）"""
+        self._calc_and_save_valuation_field(ticker, "yoy_or", f"{ticker}_营收同比")
+
+    def calc_and_save_debttoassets(self, ticker: str):
+        """资产负债率（数据来源：{ticker}_debttoassets.csv）"""
+        self._calc_and_save_valuation_field(
+            ticker, "debttoassets", f"{ticker}_资产负债率"
+        )
+
+
 # ==================================================
 # 实际运行脚本 (支持配置化与批量执行)
 # ==================================================
@@ -514,40 +642,17 @@ if __name__ == "__main__":
     # --- 2. 挂载引擎与模块 ---
     loader = DataLoader(root_dir=ROOT_PATH)
     vp_module = VolumePriceIndicators(data_loader=loader, output_dir=OUTPUT_PATH)
+    val_module = ValueIndicators(data_loader=loader, output_dir=OUTPUT_PATH)
     
-    # --- 3. 执行任务队列 ---
+    # --- 3. 执行任务队列（顺序与类中 calc_* 方法定义顺序一致）---
+
+    # —— VolumePriceIndicators：基础/跨品种（成交额 → 占比 → 相对强弱 → 相对换手率 → 年化基差）——
     for ticker in TARGET_ASSETS:
-        print(f"\n正在处理资产标的: [ {ticker} ]")
-        
-        # 执行指标计算 (参数化控制生成周期)
+        print(f"\n[量价-成交额/占比] 标的: [ {ticker} ]")
         vp_module.calc_and_save_amt(ticker)
         vp_module.calc_and_save_amt_ratio(ticker)
-        vp_module.calc_and_save_pchg_abs(ticker, n=1)
-        vp_module.calc_and_save_mom(ticker, windows=[20, 60, 120])
-        vp_module.calc_and_save_ma(ticker, windows=[20, 60, 120])
-        vp_module.calc_and_save_ma_turnover(ticker)
-        vp_module.calc_and_save_ma_deviation(ticker)
-        vp_module.calc_and_save_rsi_percentile(ticker)
-        vp_module.calc_and_save_volatility(ticker, windows=[20, 60, 120])
-        vp_module.calc_and_save_high_new(ticker)
-        vp_module.calc_and_save_low_new(ticker)
-        vp_module.calc_and_save_return_acf1(ticker, windows=[20, 60, 120])
-        vp_module.calc_and_save_erp(ticker)
 
-    print("\n正在处理隐含波动率（IV）指标...")
-    for iv_ticker in IV_ASSETS:
-        print(f"\n正在处理IV指数: [ {iv_ticker} ]")
-        vp_module.calc_and_save_implied_vol(iv_ticker)
-
-    print("\n正在处理市场级估值指标...")
-    vp_module.calc_and_save_margin()
-    vp_module.calc_and_save_north()
-
-    print("\n正在处理净申购指标...")
-    for ticker in TARGET_ASSETS:
-        vp_module.calc_and_save_net_subscription(ticker)
-        
-    print("\n正在处理跨品种指标...")
+    print("\n[量价-跨品种] 相对强弱 (RS)...")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="000905.SH")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="000852.SH")
     vp_module.calc_relative_strength(ticker_a="000300.SH", ticker_b="932000.CSI")
@@ -557,7 +662,7 @@ if __name__ == "__main__":
     vp_module.calc_relative_strength(ticker_a="000905.SH", ticker_b="8841431.WI")
     vp_module.calc_relative_strength(ticker_a="000852.SH", ticker_b="8841431.WI")
 
-
+    print("\n[量价-跨品种] 相对换手率 (RT)...")
     vp_module.calc_relative_turnover(ticker_a="000300.SH", ticker_b="000905.SH")
     vp_module.calc_relative_turnover(ticker_a="000300.SH", ticker_b="000852.SH")
     vp_module.calc_relative_turnover(ticker_a="000300.SH", ticker_b="932000.CSI")
@@ -565,8 +670,58 @@ if __name__ == "__main__":
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="000852.SH")
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="932000.CSI")
     vp_module.calc_relative_turnover(ticker_a="000905.SH", ticker_b="8841431.WI")
-    vp_module.calc_relative_turnover(ticker_a="000852.SH", ticker_b="8841431.WI")  
-      
+    vp_module.calc_relative_turnover(ticker_a="000852.SH", ticker_b="8841431.WI")
+
+    print("\n[量价] 股指期货 annualized basis...")
+    vp_module.calc_and_save_annualized_basis()
+
+    # —— VolumePriceIndicators：动量与趋势（单标的）——
+    for ticker in TARGET_ASSETS:
+        print(f"\n[量价-动量/趋势] 标的: [ {ticker} ]")
+        vp_module.calc_and_save_pchg_abs(ticker, n=1)
+        vp_module.calc_and_save_mom(ticker, windows=[20, 60, 120])
+        vp_module.calc_and_save_ma(ticker, windows=[20, 60, 120])
+        vp_module.calc_and_save_ma_turnover(ticker)
+        vp_module.calc_and_save_ma_deviation(ticker, windows=[20, 60, 120])
+        vp_module.calc_and_save_high_new(ticker)
+        vp_module.calc_and_save_low_new(ticker)
+        vp_module.calc_and_save_return_acf1(ticker, windows=[20, 60, 120])
+
+    # —— VolumePriceIndicators：IV → 两融/北向 → 净申购 → ERP → RSI → 波动率 ——
+    print("\n[量价] 隐含波动率（IV）...")
+    for iv_ticker in IV_ASSETS:
+        print(f"  IV: [ {iv_ticker} ]")
+        vp_module.calc_and_save_implied_vol(iv_ticker)
+
+    print("\n[量价] 市场级：两融余额 / 北向资金...")
+    vp_module.calc_and_save_margin()
+    vp_module.calc_and_save_north()
+
+    print("\n[量价] 净申购...")
+    for ticker in TARGET_ASSETS:
+        vp_module.calc_and_save_net_subscription(ticker)
+
+    print("\n[量价] 股债风险溢价（ERP，读取估值源 PE CSV，不依赖下方估值 PKL）...")
+    for ticker in TARGET_ASSETS:
+        vp_module.calc_and_save_erp(ticker)
+
+    print("\n[量价] RSI / 年化波动率...")
+    for ticker in TARGET_ASSETS:
+        vp_module.calc_and_save_rsi_percentile(ticker)
+        vp_module.calc_and_save_volatility(ticker, windows=[20, 60, 120])
+
+    # —— ValueIndicators：估值原始序列（与类中方法顺序一致）——
+    print("\n[估值] PE / PB / PS / PCF / 股息率 / ROE / 营收同比 / 资产负债率...")
+    for ticker in TARGET_ASSETS:
+        print(f"  标的: [ {ticker} ]")
+        val_module.calc_and_save_pe_ttm(ticker)
+        val_module.calc_and_save_pb_lf(ticker)
+        val_module.calc_and_save_ps_ttm(ticker)
+        val_module.calc_and_save_val_pcf_ocfttmwgt(ticker)
+        val_module.calc_and_save_val_dividendyield3(ticker)
+        val_module.calc_and_save_roe_ttm2(ticker)
+        val_module.calc_and_save_yoy_or(ticker)
+        val_module.calc_and_save_debttoassets(ticker)
 
     print("\n[OK] 任务结束：所有核心技术指标已成功生成并分类入库！")
     print("="*50)
